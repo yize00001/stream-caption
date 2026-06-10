@@ -1,0 +1,27 @@
+# 環境設定
+.env
+.env.*
+
+# 虛擬環境
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 資料庫 / log
+*.db
+*.log
+
+# uv
+.python-version
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+desktop.ini
