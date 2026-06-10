@@ -11,6 +11,7 @@ dependencies = [
     "python-dotenv",
     "pystray>=0.19.5",
     "pillow>=12.2.0",
+    "deepl>=1.30.0",
 ]
 
 [project.scripts]
