@@ -1,0 +1,22 @@
+# stream-caption settings
+# Copy this file to settings.toml and edit as needed.
+# All values shown are the defaults.
+
+[overlay]
+font_family = "Microsoft JhengHei"
+font_size_zh = 18          # Traditional Chinese font size
+font_size_ja = 12          # Japanese font size
+bg_color = "#1a1a1a"       # Background color
+fg_zh = "#FFD700"          # Chinese text color (yellow)
+fg_ja = "#87CEEB"          # Japanese text color (light blue)
+opacity = 0.88             # Window opacity (0.0–1.0)
+width = 700                # Window width in pixels
+height = 160               # Window height in pixels
+auto_hide_seconds = 8      # Hide overlay after N seconds of silence
+
+[audio]
+silence_threshold = 0.003  # Volume below this is treated as silence
+window_seconds = 4         # Rolling STT window size
+step_seconds = 2           # Audio chunk size
+min_text_length = 4        # Minimum characters to process
+device = ""                # Speaker name substring to match, empty = system default

@@ -44,17 +44,13 @@ if _cuda_bin:
 warnings.filterwarnings("ignore", message="data discontinuity", category=UserWarning)
 import soundcard as sc
 from faster_whisper import WhisperModel
+from PIL import Image, ImageDraw
+import pystray
 
+from stream_caption.settings import load_settings
 from stream_caption.translator import translate
 from stream_caption.overlay import SubtitleOverlay
 
-SAMPLE_RATE = 16000
-WINDOW_SECONDS = 4   # rolling transcription window size
-STEP_SECONDS = 2     # record interval — 2s overlap prevents sentence cuts
-SILENCE_THRESHOLD = 0.003
-MIN_TEXT_LENGTH = 4
-
-# Phrases Whisper commonly hallucinates on quiet/noisy segments
 _HALLUCINATIONS = (
     "ご視聴ありがとうございました",
     "チャンネル登録",
@@ -74,7 +70,7 @@ def _is_duplicate(new: str, prev: str) -> bool:
     return difflib.SequenceMatcher(None, new, prev).ratio() > 0.8
 
 
-def load_model() -> WhisperModel:
+def _load_model() -> WhisperModel:
     for device, compute in [("cuda", "float16"), ("cpu", "int8")]:
         try:
             print(f"Loading faster-whisper large-v3 ({device.upper()})...")
@@ -88,7 +84,7 @@ def load_model() -> WhisperModel:
             print(f"CUDA unavailable ({e}), falling back to CPU...")
 
 
-def transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> str:
+def _transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> str:
     segments, _ = model.transcribe(
         audio,
         language="ja",
@@ -99,26 +95,34 @@ def transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> s
     return "".join(seg.text for seg in segments).strip()
 
 
-def _record_loop(mic: sc.core.Recorder, audio_q: "queue.Queue[np.ndarray]") -> None:
-    """Continuously capture audio chunks into the queue, independent of processing speed."""
-    while True:
+def _record_loop(mic, audio_q: queue.Queue, stop_evt: threading.Event) -> None:
+    sample_rate = 16000
+    step_frames = sample_rate * 2
+    while not stop_evt.is_set():
         try:
-            chunk = mic.record(numframes=SAMPLE_RATE * STEP_SECONDS)
+            chunk = mic.record(numframes=step_frames)
             mono = (chunk.mean(axis=1) if chunk.ndim > 1 else chunk.flatten()).astype(np.float32)
             if audio_q.full():
-                audio_q.get_nowait()  # drop oldest to avoid unbounded backlog
+                audio_q.get_nowait()
             audio_q.put_nowait(mono)
         except Exception as e:
-            print(f"[WARN] Audio capture error, skipping: {e}")
+            print(f"[WARN] Audio capture error: {e}")
 
 
-def main():
-    overlay = SubtitleOverlay()
-    overlay.start()
-    print("Subtitle overlay started. Double-click the window to close.\n")
+def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading.Event) -> None:
+    audio_cfg = settings.audio
+    sample_rate = 16000
+    max_chunks = audio_cfg.window_seconds // audio_cfg.step_seconds
 
-    default_speaker = sc.default_speaker()
-    print(f"Using speaker loopback: {default_speaker.name}")
+    speaker = sc.default_speaker()
+    if audio_cfg.device:
+        match = next(
+            (s for s in sc.all_speakers() if audio_cfg.device.lower() in s.name.lower()),
+            None,
+        )
+        if match:
+            speaker = match
+    print(f"Using speaker loopback: {speaker.name}")
     if _cuda_bin:
         print(f"CUDA bin: {_cuda_bin}")
 
@@ -126,28 +130,34 @@ def main():
     log_dir.mkdir(exist_ok=True)
     log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-    prev_ja = ""
-    prev_zh = ""
-    audio_chunks: list[np.ndarray] = []
-    max_chunks = WINDOW_SECONDS // STEP_SECONDS  # 2 chunks of 2s = 4s window
-
-    # queue holds at most max_chunks * 2 chunks to allow some backlog without growing forever
     audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=max_chunks * 2)
 
-    with sc.get_microphone(default_speaker.id, include_loopback=True).recorder(
-        samplerate=SAMPLE_RATE
+    with sc.get_microphone(speaker.id, include_loopback=True).recorder(
+        samplerate=sample_rate
     ) as mic, open(log_path, "w", encoding="utf-8") as log_file:
-        model = load_model()
-        # Discard audio buffered during model loading
-        mic.record(numframes=SAMPLE_RATE * WINDOW_SECONDS)
+        model = _load_model()
+        mic.record(numframes=sample_rate * audio_cfg.window_seconds)
 
-        threading.Thread(target=_record_loop, args=(mic, audio_q), daemon=True).start()
+        threading.Thread(
+            target=_record_loop, args=(mic, audio_q, stop_evt), daemon=True
+        ).start()
 
         print(f"Logging to: {log_path}")
-        print("Listening... Press Ctrl+C to stop.\n")
+        print("Listening... Right-click tray icon to Pause or Quit.\n")
 
-        while True:
-            mono = audio_q.get()
+        prev_ja = ""
+        prev_zh = ""
+        audio_chunks: list[np.ndarray] = []
+
+        while not stop_evt.is_set():
+            if pause_evt.is_set():
+                time.sleep(0.2)
+                continue
+
+            try:
+                mono = audio_q.get(timeout=1.0)
+            except queue.Empty:
+                continue
 
             audio_chunks.append(mono)
             if len(audio_chunks) > max_chunks:
@@ -156,15 +166,14 @@ def main():
                 continue
 
             window = np.concatenate(audio_chunks)
-
-            if float(np.abs(window).mean()) < SILENCE_THRESHOLD:
+            if float(np.abs(window).mean()) < audio_cfg.silence_threshold:
                 continue
 
             t0 = time.time()
-            ja_text = transcribe(model, window, prev_text=prev_ja)
+            ja_text = _transcribe(model, window, prev_text=prev_ja)
             stt_ms = (time.time() - t0) * 1000
 
-            if not ja_text or len(ja_text) < MIN_TEXT_LENGTH:
+            if not ja_text or len(ja_text) < audio_cfg.min_text_length:
                 continue
             if _is_hallucination(ja_text) or _is_duplicate(ja_text, prev_ja):
                 continue
@@ -187,8 +196,53 @@ def main():
             overlay.push(ja_text, zh_text)
 
 
+def _create_tray_icon() -> Image.Image:
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle([2, 2, 62, 62], radius=12, fill="#1a1a1a")
+    draw.rounded_rectangle([10, 18, 54, 28], radius=3, fill="#FFD700")
+    draw.rounded_rectangle([10, 34, 44, 44], radius=3, fill="#87CEEB")
+    return img
+
+
+def main():
+    settings = load_settings()
+    overlay = SubtitleOverlay(settings.overlay)
+    overlay.start()
+
+    stop_evt = threading.Event()
+    pause_evt = threading.Event()
+
+    threading.Thread(
+        target=_pipeline,
+        args=(settings, overlay, stop_evt, pause_evt),
+        daemon=True,
+    ).start()
+
+    def on_quit(icon, item):
+        stop_evt.set()
+        icon.stop()
+
+    def on_toggle_pause(icon, item):
+        if pause_evt.is_set():
+            pause_evt.clear()
+            icon.title = "stream-caption"
+        else:
+            pause_evt.set()
+            icon.title = "stream-caption (paused)"
+
+    def pause_label(item):
+        return "Resume" if pause_evt.is_set() else "Pause"
+
+    menu = pystray.Menu(
+        pystray.MenuItem(pause_label, on_toggle_pause),
+        pystray.MenuItem("Quit", on_quit),
+    )
+
+    tray = pystray.Icon("stream-caption", _create_tray_icon(), "stream-caption", menu)
+    print("Subtitle overlay started. Right-click the tray icon to Pause or Quit.\n")
+    tray.run()
+
+
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nStopped.")
+    main()

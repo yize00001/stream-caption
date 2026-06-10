@@ -7,23 +7,14 @@ import queue
 import threading
 import tkinter as tk
 
+from stream_caption.settings import OverlaySettings
 
 MAX_PAIRS = 2
-FONT_FAMILY = "Microsoft JhengHei"
-FONT_SIZE_ZH = 18
-FONT_SIZE_JA = 12
-BG_COLOR = "#1a1a1a"
-FG_ZH = "#FFD700"
-FG_JA = "#87CEEB"
-OPACITY = 0.88
-WINDOW_WIDTH = 700
-WINDOW_HEIGHT = 160
-PADDING = 8
-AUTO_HIDE_MS = 8000  # hide overlay after 8s of no new subtitle
 
 
 class SubtitleOverlay:
-    def __init__(self):
+    def __init__(self, s: OverlaySettings | None = None):
+        self._s = s or OverlaySettings()
         self._queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._pairs: list[tuple[str, str]] = []
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -45,19 +36,20 @@ class SubtitleOverlay:
         text_widget.config(state="disabled")
 
     def _run(self):
+        s = self._s
         root = tk.Tk()
         root.title("stream-caption")
         root.overrideredirect(True)
         root.attributes("-topmost", True)
-        root.attributes("-alpha", 0)  # hidden until first subtitle arrives
-        root.configure(bg=BG_COLOR)
+        root.attributes("-alpha", 0)
+        root.configure(bg=s.bg_color)
         root.resizable(False, False)
 
         sw = root.winfo_screenwidth()
         sh = root.winfo_screenheight()
-        x = (sw - WINDOW_WIDTH) // 2
-        y = sh - WINDOW_HEIGHT - 60
-        root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{x}+{y}")
+        x = (sw - s.width) // 2
+        y = sh - s.height - 60
+        root.geometry(f"{s.width}x{s.height}+{x}+{y}")
 
         self._drag_x = 0
         self._drag_y = 0
@@ -77,16 +69,16 @@ class SubtitleOverlay:
 
         txt = tk.Text(
             root,
-            bg=BG_COLOR,
+            bg=s.bg_color,
             relief="flat",
-            font=(FONT_FAMILY, FONT_SIZE_ZH),
-            padx=PADDING,
-            pady=PADDING,
+            font=(s.font_family, s.font_size_zh),
+            padx=10,
+            pady=10,
             cursor="arrow",
             wrap="word",
         )
-        txt.tag_configure("ja", font=(FONT_FAMILY, FONT_SIZE_JA), foreground=FG_JA)
-        txt.tag_configure("zh", font=(FONT_FAMILY, FONT_SIZE_ZH), foreground=FG_ZH)
+        txt.tag_configure("ja", font=(s.font_family, s.font_size_ja), foreground=s.fg_ja)
+        txt.tag_configure("zh", font=(s.font_family, s.font_size_zh), foreground=s.fg_zh)
         txt.config(state="disabled")
         txt.pack(fill="both", expand=True)
 
@@ -108,10 +100,10 @@ class SubtitleOverlay:
                 pass
             if updated:
                 self._render(txt)
-                root.attributes("-alpha", OPACITY)
+                root.attributes("-alpha", s.opacity)
                 if hide_timer[0]:
                     root.after_cancel(hide_timer[0])
-                hide_timer[0] = root.after(AUTO_HIDE_MS, hide)
+                hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
             root.after(100, poll)
 
         root.after(100, poll)

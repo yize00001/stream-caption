@@ -9,6 +9,8 @@ dependencies = [
     "openai",
     "opencc-python-reimplemented",
     "python-dotenv",
+    "pystray>=0.19.5",
+    "pillow>=12.2.0",
 ]
 
 [project.scripts]

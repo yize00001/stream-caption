@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# User settings
+settings.toml
+!settings.toml.example
+
 # Virtual environment
 .venv/
 
