@@ -136,7 +136,9 @@ target_lang = "en"
 ## 注意事項
 
 - 僅支援 Windows（WASAPI Loopback）
-- CUDA DLL 手動複製：將 `cublas64_12.dll`、`cublasLt64_12.dll`、`cudart64_12.dll` 從 `CUDA\v12.x\bin` 複製到 `.venv\Lib\site-packages\ctranslate2\`
+- **沒有 GPU？** 程式會自動切換成 CPU 模式，不需要任何額外設定，但速度較慢（每段約 3–10 秒，而非 GPU 的 ~0.5 秒）
+- **NVIDIA GPU（RTX 3000 / 4000 系列）：** 安裝 [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) 即可，不需要其他步驟
+- **NVIDIA GPU（RTX 5000 系列 / Blackwell 架構）：** 安裝 CUDA Toolkit 後，還需將 `cublas64_12.dll`、`cublasLt64_12.dll`、`cudart64_12.dll` 從 `CUDA\v12.x\bin` 複製到 `.venv\Lib\site-packages\ctranslate2\`
 - 修改 `Modelfile` 後需重新執行 `ollama create sakura -f Modelfile`
 - `settings.toml` 和 `window-state.json` 已加入 `.gitignore`（個人設定，不進版本控管）
 

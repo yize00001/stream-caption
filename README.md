@@ -140,7 +140,9 @@ target_lang = "en"
 ## Notes
 
 - Windows only (WASAPI Loopback)
-- CUDA DLL workaround: copy `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` from `CUDA\v12.x\bin` to `.venv\Lib\site-packages\ctranslate2\`
+- **No GPU?** The app automatically falls back to CPU mode — no setup needed, just slower inference (~3–10s per segment instead of ~0.5s)
+- **NVIDIA GPU (RTX 3000/4000 series):** Install [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) — no extra steps needed
+- **NVIDIA GPU (RTX 5000 series / Blackwell):** After installing CUDA Toolkit, also copy `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` from `CUDA\v12.x\bin` to `.venv\Lib\site-packages\ctranslate2\`
 - After editing `Modelfile`, re-run `ollama create sakura -f Modelfile`
 - `settings.toml` and `window-state.json` are gitignored (personal config)
 
