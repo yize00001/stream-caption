@@ -2,7 +2,7 @@
 
 Real-time speech recognition and translation overlay for YouTube/Twitch live streams, Japanese games, and video meetings.
 
-**v1.1.0** | [繁體中文說明](README.zh-TW.md)
+**v1.2.0** | [繁體中文說明](README.zh-TW.md)
 
 ## Stack
 
@@ -109,6 +109,9 @@ font_size_ja = 12
 fg_zh = "#FFD700"
 fg_ja = "#87CEEB"
 bg_color = "#1a1a1a"
+
+[log]
+enabled = false              # set to true to save transcription logs to logs/
 
 [hotkey]
 toggle = "<ctrl>+<shift>+h"  # toggle overlay visibility

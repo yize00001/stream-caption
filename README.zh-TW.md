@@ -2,7 +2,7 @@
 
 即時語音辨識與翻譯字幕浮動視窗，適用於 YouTube / Twitch 日文直播、日文遊戲、或與外國客戶的視訊會議。
 
-**v1.1.0** | [English](README.md)
+**v1.2.0** | [English](README.md)
 
 ## 翻譯後端說明
 
@@ -102,6 +102,9 @@ font_size_ja = 12
 fg_zh = "#FFD700"
 fg_ja = "#87CEEB"
 bg_color = "#1a1a1a"
+
+[log]
+enabled = false              # 設為 true 可將辨識紀錄存到 logs/ 資料夾
 
 [hotkey]
 toggle = "<ctrl>+<shift>+h"  # 切換字幕顯示/隱藏
