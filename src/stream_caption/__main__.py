@@ -70,13 +70,23 @@ def _is_duplicate(new: str, prev: str) -> bool:
     return difflib.SequenceMatcher(None, new, prev).ratio() > 0.8
 
 
-def _is_laughter(text: str) -> bool:
-    """Detect pure laughter/filler sounds like フフフフ, ははは that cause very long STT."""
+def _is_repetitive_loop(text: str) -> bool:
+    """Detect Whisper hallucination loops: single-char (フフフフ) or bigram (いたいた) repetition."""
     stripped = [c for c in text if c not in " 　、。…"]
-    if len(stripped) < 4:
+    if len(stripped) < 8:
         return False
+    # Single-char: >65% same character
     most_common = max(set(stripped), key=stripped.count)
-    return stripped.count(most_common) / len(stripped) > 0.65
+    if stripped.count(most_common) / len(stripped) > 0.65:
+        return True
+    # Bigram: >50% same 2-char sequence (catches いたいたいた...)
+    joined = "".join(stripped)
+    bigrams = [joined[i:i+2] for i in range(len(joined) - 1)]
+    if bigrams:
+        top_bg = max(set(bigrams), key=bigrams.count)
+        if bigrams.count(top_bg) / len(bigrams) > 0.5:
+            return True
+    return False
 
 
 def _load_model() -> WhisperModel:
@@ -100,6 +110,7 @@ def _transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> 
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
         initial_prompt=prev_text if prev_text else None,
+        no_repeat_ngram_size=3,
     )
     return "".join(seg.text for seg in segments).strip()
 
@@ -194,7 +205,10 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
 
             if not ja_text or len(ja_text) < audio_cfg.min_text_length:
                 continue
-            if _is_hallucination(ja_text) or _is_duplicate(ja_text, prev_ja) or _is_laughter(ja_text):
+            if len(ja_text) > 150:
+                print(f"[WARN] STT output too long ({len(ja_text)} chars), likely hallucination loop, skipping")
+                continue
+            if _is_hallucination(ja_text) or _is_duplicate(ja_text, prev_ja) or _is_repetitive_loop(ja_text):
                 continue
 
             t1 = time.time()
