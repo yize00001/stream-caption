@@ -12,6 +12,7 @@ dependencies = [
     "pystray>=0.19.5",
     "pillow>=12.2.0",
     "deepl>=1.30.0",
+    "pynput>=1.8.2",
 ]
 
 [project.scripts]

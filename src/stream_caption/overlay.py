@@ -36,6 +36,8 @@ class SubtitleOverlay:
         self._s = s or OverlaySettings()
         self._queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._pairs: list[tuple[str, str]] = []
+        self._user_hidden: bool = False
+        self._visibility_changed: bool = False
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
@@ -43,6 +45,11 @@ class SubtitleOverlay:
 
     def push(self, ja: str, zh: str):
         self._queue.put((ja, zh))
+
+    def toggle(self):
+        """Toggle overlay on/off. Safe to call from any thread."""
+        self._user_hidden = not self._user_hidden
+        self._visibility_changed = True
 
     def _render(self, text_widget: tk.Text):
         text_widget.config(state="normal")
@@ -156,7 +163,20 @@ class SubtitleOverlay:
                     updated = True
             except queue.Empty:
                 pass
-            if updated:
+
+            if self._visibility_changed:
+                self._visibility_changed = False
+                if self._user_hidden:
+                    if hide_timer[0]:
+                        root.after_cancel(hide_timer[0])
+                        hide_timer[0] = None
+                    root.attributes("-alpha", 0)
+                else:
+                    if self._pairs:
+                        root.attributes("-alpha", s.opacity)
+                        hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
+
+            if updated and not self._user_hidden:
                 self._render(txt)
                 root.attributes("-alpha", s.opacity)
                 if hide_timer[0]:

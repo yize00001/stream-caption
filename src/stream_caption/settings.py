@@ -34,10 +34,16 @@ class STTSettings:
 
 
 @dataclass
+class HotkeySettings:
+    toggle: str = "<ctrl>+<shift>+h"  # toggle overlay visibility
+
+
+@dataclass
 class Settings:
     overlay: OverlaySettings = field(default_factory=OverlaySettings)
     audio: AudioSettings = field(default_factory=AudioSettings)
     stt: STTSettings = field(default_factory=STTSettings)
+    hotkey: HotkeySettings = field(default_factory=HotkeySettings)
 
 
 def load_settings() -> Settings:
@@ -46,7 +52,7 @@ def load_settings() -> Settings:
         return s
     with open(_SETTINGS_PATH, "rb") as f:
         data = tomllib.load(f)
-    for section, obj in (("overlay", s.overlay), ("audio", s.audio), ("stt", s.stt)):
+    for section, obj in (("overlay", s.overlay), ("audio", s.audio), ("stt", s.stt), ("hotkey", s.hotkey)):
         for k, v in data.get(section, {}).items():
             if hasattr(obj, k):
                 setattr(obj, k, v)

@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from pynput import keyboard as _kb
 
 
 def _find_cuda_bin() -> str | None:
@@ -303,6 +304,32 @@ def main():
         pystray.MenuItem(pause_label, on_toggle_pause),
         pystray.MenuItem("Quit", on_quit),
     )
+
+    hotkey_str = settings.hotkey.toggle
+    try:
+        hotkey = _kb.HotKey(
+            _kb.HotKey.parse(hotkey_str),
+            overlay.toggle,
+        )
+
+        def _on_press(key):
+            try:
+                hotkey.press(listener.canonical(key))
+            except Exception:
+                pass
+
+        def _on_release(key):
+            try:
+                hotkey.release(listener.canonical(key))
+            except Exception:
+                pass
+
+        listener = _kb.Listener(on_press=_on_press, on_release=_on_release)
+        listener.daemon = True
+        listener.start()
+        print(f"Hotkey: {hotkey_str} — toggle overlay visibility")
+    except Exception as e:
+        print(f"[WARN] Could not register hotkey '{hotkey_str}': {e}")
 
     tray = pystray.Icon("stream-caption", _create_tray_icon(), "stream-caption", menu)
     tray_ref[0] = tray
