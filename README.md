@@ -2,7 +2,7 @@
 
 Real-time speech recognition and translation overlay for YouTube/Twitch live streams, Japanese games, and video meetings.
 
-**v1.3.1** | [繁體中文說明](README.zh-TW.md)
+**v1.3.2** | [繁體中文說明](README.zh-TW.md)
 
 ## Stack
 

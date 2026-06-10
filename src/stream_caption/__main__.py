@@ -99,8 +99,10 @@ def _transcribe(
 ) -> tuple[str, str]:
     """Returns (transcribed_text, detected_language_code)."""
     whisper_lang = None if source_lang == "auto" else source_lang.lower().split("-")[0]
-    vocab_str = " ".join(vocab) if vocab else ""
-    prompt = " ".join(filter(None, [vocab_str, prev_text])) or None
+    # Use hotwords for vocab (boosts recognition without hallucination risk)
+    # Use initial_prompt only for previous sentence context
+    hotwords = " ".join(vocab) if vocab else None
+    prompt = prev_text or None
     segments, info = model.transcribe(
         audio,
         language=whisper_lang,
@@ -108,6 +110,7 @@ def _transcribe(
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
         initial_prompt=prompt,
+        hotwords=hotwords,
         no_repeat_ngram_size=3,
         compression_ratio_threshold=1.8,
         log_prob_threshold=-0.8,
@@ -229,6 +232,7 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
                 except queue.Empty:
                     pass
                 print(f"[WARN] STT took {stt_ms:.0f}ms, flushed stale audio buffer")
+                continue
 
             if not src_text or len(src_text) < audio_cfg.min_text_length:
                 continue
