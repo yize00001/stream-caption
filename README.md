@@ -53,20 +53,6 @@ winget install Ollama.Ollama
 ollama create sakura -f Modelfile
 ```
 
-### 4. (Optional) Audio isolation with VB-Cable
-
-To prevent Discord/other apps from being transcribed:
-
-1. Install [VB-Cable](https://vb-audio.com/Cable/) (free)
-2. Windows Settings → Sound → App volume → set browser output to `CABLE Input`
-3. Control Panel → Sound → Recording → `CABLE Output` → Listen → enable monitoring to your headphones
-4. Set `settings.toml`:
-
-```toml
-[audio]
-device = "CABLE Input"
-```
-
 ## Usage
 
 ```powershell
