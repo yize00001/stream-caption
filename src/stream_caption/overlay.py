@@ -11,7 +11,6 @@ from pathlib import Path
 
 from stream_caption.settings import OverlaySettings
 
-MAX_PAIRS = 2
 _STATE_PATH = Path(__file__).parent.parent.parent / "window-state.json"
 
 
@@ -51,7 +50,7 @@ class SubtitleOverlay:
         self._user_hidden = not self._user_hidden
         self._visibility_changed = True
 
-    def _render(self, text_widget: tk.Text):
+    def _render(self, text_widget: tk.Text, scroll_to_bottom: bool = True):
         text_widget.config(state="normal")
         text_widget.delete("1.0", "end")
         for i, (ja, zh) in enumerate(self._pairs):
@@ -60,6 +59,8 @@ class SubtitleOverlay:
             text_widget.insert("end", ja + "\n", "ja")
             text_widget.insert("end", zh, "zh")
         text_widget.config(state="disabled")
+        if scroll_to_bottom:
+            text_widget.see("end")
 
     def _run(self):
         s = self._s
@@ -107,7 +108,6 @@ class SubtitleOverlay:
 
         root.bind("<ButtonPress-1>", on_press)
         root.bind("<B1-Motion>", on_drag)
-        root.bind("<Double-Button-1>", lambda e: root.destroy())
 
         txt = tk.Text(
             root,
@@ -123,6 +123,15 @@ class SubtitleOverlay:
         txt.tag_configure("zh", font=(s.font_family, s.font_size_zh), foreground=s.fg_zh)
         txt.config(state="disabled")
         txt.pack(fill="both", expand=True)
+
+        # Enable mouse wheel scrolling on disabled Text widget
+        def on_mousewheel(event):
+            txt.config(state="normal")
+            txt.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            txt.config(state="disabled")
+
+        txt.bind("<MouseWheel>", on_mousewheel)
+        root.bind("<MouseWheel>", on_mousewheel)
 
         # Resize grip — bottom-right corner
         grip = tk.Label(root, bg=s.bg_color, cursor="sizing", text="⠿", fg="#444444")
@@ -148,9 +157,27 @@ class SubtitleOverlay:
         grip.bind("<B1-Motion>", on_grip_drag)
 
         hide_timer = [None]
+        mouse_over = [False]
 
         def hide():
-            root.attributes("-alpha", 0)
+            if not mouse_over[0]:
+                root.attributes("-alpha", 0)
+
+        def on_enter(event):
+            mouse_over[0] = True
+            # Cancel auto-hide while hovering
+            if hide_timer[0]:
+                root.after_cancel(hide_timer[0])
+                hide_timer[0] = None
+
+        def on_leave(event):
+            mouse_over[0] = False
+            # Restart auto-hide when mouse leaves
+            if root.attributes("-alpha") > 0:
+                hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
+
+        root.bind("<Enter>", on_enter)
+        root.bind("<Leave>", on_leave)
 
         def poll():
             updated = False
@@ -158,8 +185,6 @@ class SubtitleOverlay:
                 while True:
                     ja, zh = self._queue.get_nowait()
                     self._pairs.append((ja, zh))
-                    if len(self._pairs) > MAX_PAIRS:
-                        self._pairs.pop(0)
                     updated = True
             except queue.Empty:
                 pass
@@ -177,11 +202,14 @@ class SubtitleOverlay:
                         hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
 
             if updated and not self._user_hidden:
-                self._render(txt)
+                # Only auto-scroll to bottom if already near the bottom
+                at_bottom = txt.yview()[1] >= 0.95
+                self._render(txt, scroll_to_bottom=at_bottom)
                 root.attributes("-alpha", s.opacity)
-                if hide_timer[0]:
-                    root.after_cancel(hide_timer[0])
-                hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
+                if not mouse_over[0]:
+                    if hide_timer[0]:
+                        root.after_cancel(hide_timer[0])
+                    hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
             root.after(100, poll)
 
         root.after(100, poll)
