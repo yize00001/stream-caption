@@ -1,3 +1,3 @@
 @echo off
-cd /d D:\WorkSpace\side_project\stream-caption
+cd /d "%~dp0"
 uv run stream-caption

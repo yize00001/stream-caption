@@ -34,6 +34,11 @@ class STTSettings:
 
 
 @dataclass
+class LogSettings:
+    enabled: bool = False  # set to true to enable log files in logs/
+
+
+@dataclass
 class TranslationSettings:
     source_lang: str = "auto"   # "auto" or ISO 639-1: ja en ko zh fr de
     target_lang: str = "zh-TW"  # zh-TW zh-CN en ja ko fr de
@@ -50,6 +55,7 @@ class Settings:
     audio: AudioSettings = field(default_factory=AudioSettings)
     stt: STTSettings = field(default_factory=STTSettings)
     translation: TranslationSettings = field(default_factory=TranslationSettings)
+    log: LogSettings = field(default_factory=LogSettings)
     hotkey: HotkeySettings = field(default_factory=HotkeySettings)
 
 
@@ -64,6 +70,7 @@ def load_settings() -> Settings:
         ("audio", s.audio),
         ("stt", s.stt),
         ("translation", s.translation),
+        ("log", s.log),
         ("hotkey", s.hotkey),
     ):
         for k, v in data.get(section, {}).items():

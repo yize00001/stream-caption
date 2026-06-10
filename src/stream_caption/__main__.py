@@ -76,6 +76,7 @@ def _load_model() -> WhisperModel:
     for device, compute in [("cuda", "float16"), ("cpu", "int8")]:
         try:
             print(f"Loading faster-whisper large-v3 ({device.upper()})...")
+            print("(First run will download ~3GB model — this may take a few minutes)")
             start = time.time()
             model = WhisperModel("large-v3", device=device, compute_type=compute)
             print(f"Model loaded in {time.time() - start:.1f}s\n")
@@ -146,19 +147,26 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
         )
         if match:
             speaker = match
+        else:
+            print(f"[WARN] Audio device '{audio_cfg.device}' not found, using system default: {speaker.name}")
     print(f"Using speaker loopback: {speaker.name}")
     if _cuda_bin:
         print(f"CUDA bin: {_cuda_bin}")
 
-    log_dir = Path(__file__).parent.parent.parent / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    import contextlib
+
+    log_path = None
+    if settings.log.enabled:
+        log_dir = Path(__file__).parent.parent.parent / "logs"
+        log_dir.mkdir(exist_ok=True)
+        log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
     audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=max_chunks * 2)
 
+    log_ctx = open(log_path, "w", encoding="utf-8") if log_path else contextlib.nullcontext()
     with sc.get_microphone(speaker.id, include_loopback=True).recorder(
         samplerate=sample_rate
-    ) as mic, open(log_path, "w", encoding="utf-8") as log_file:
+    ) as mic, log_ctx as log_file:
         model = _load_model()
         mic.record(numframes=sample_rate * audio_cfg.window_seconds)
 
@@ -170,7 +178,10 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
         src = settings.translation.source_lang
         tgt = settings.translation.target_lang
         print(f"Translation: {src} → {tgt}")
-        print(f"Logging to: {log_path}")
+        if log_path:
+            print(f"Logging to: {log_path}")
+        else:
+            print("Logging disabled")
         print("Listening... Right-click tray icon to Pause or Quit.\n")
 
         prev_src = ""
@@ -247,8 +258,9 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
 
             line = f"[STT {stt_ms:.0f}ms][{detected_lang}] {src_text}\n[TL  {tl_ms:.0f}ms] {tgt_text}\n"
             print(line)
-            log_file.write(line + "\n")
-            log_file.flush()
+            if log_file:
+                log_file.write(line + "\n")
+                log_file.flush()
 
             overlay.push(src_text, tgt_text)
 

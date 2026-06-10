@@ -25,5 +25,8 @@ device = ""                # Speaker name substring to match, empty = system def
 source_lang = "auto"    # "auto" or: ja en ko zh fr de
 target_lang = "zh-TW"   # zh-TW zh-CN en ja ko fr de
 
+[log]
+enabled = false  # Set to true to save transcription logs to logs/
+
 [hotkey]
 toggle = "<ctrl>+<shift>+h"  # Toggle overlay visibility (pynput format)
