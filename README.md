@@ -82,7 +82,7 @@ Press `Ctrl+Shift+H` to toggle overlay visibility.
 
 ```toml
 [audio]
-device = "CABLE Input"       # audio device name (empty = system default)
+device = ""                  # audio device name (empty = system default)
 silence_threshold = 0.003
 window_seconds = 4
 step_seconds = 2

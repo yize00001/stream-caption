@@ -75,7 +75,7 @@ uv run stream-caption
 
 ```toml
 [audio]
-device = "CABLE Input"       # 音訊裝置名稱（空字串 = 系統預設）
+device = ""                  # 音訊裝置名稱（空字串 = 系統預設）
 silence_threshold = 0.003
 window_seconds = 4
 step_seconds = 2
