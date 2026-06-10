@@ -6,17 +6,16 @@ Real-time Japanese speech recognition and Traditional Chinese translation overla
 
 - Audio: `soundcard` (WASAPI Loopback)
 - STT: `faster-whisper large-v3` (local GPU, CUDA auto-detected, CPU fallback)
-- Translation: SakuraLLM via Ollama (local, free) or Claude Haiku API (fallback)
+- Translation: SakuraLLM via Ollama (local, free, ACGN-specialized)
 - Post-processing: `opencc` Simplified → Traditional Chinese
-- UI: `tkinter` floating overlay (always-on-top, draggable, 2 pairs JA+ZH)
+- UI: `tkinter` floating overlay (always-on-top, draggable, auto-hide after 8s)
 - Config: `.env`
 
 ## Requirements
 
 - Python 3.11+, uv
 - NVIDIA GPU with CUDA 12.x (optional; falls back to CPU)
-- [Ollama](https://ollama.com) + SakuraLLM model (for local translation)
-- Anthropic API key (optional, for Claude fallback)
+- [Ollama](https://ollama.com) + SakuraLLM model
 
 ## Setup
 
@@ -44,8 +43,6 @@ ollama create sakura -f Modelfile
 ### 3. Configure `.env`
 
 ```
-TRANSLATOR_BACKEND=sakura        # or "claude" to use Anthropic API
-ANTHROPIC_API_KEY=your_key_here  # only needed if TRANSLATOR_BACKEND=claude
 OLLAMA_BASE_URL=http://localhost:11434/v1
 SAKURA_MODEL=sakura
 ```
