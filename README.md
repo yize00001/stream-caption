@@ -14,12 +14,24 @@ Real-time speech recognition and translation overlay for YouTube/Twitch live str
 - Hotkey: `pynput` — `Ctrl+Shift+H` toggles overlay visibility
 - Config: `.env` + `settings.toml`
 
+## Translation backends
+
+| | DeepL API | SakuraLLM (Ollama) |
+|---|---|---|
+| Language pairs | Any (ja, en, ko, zh, fr, de…) | Japanese → Chinese only |
+| Setup | Free API key, cloud | Local model (~9 GB download) |
+| Quality | High | High for ACGN content |
+| Requires internet | Yes | No |
+| Role | **Primary** | Fallback when DeepL unavailable |
+
+**Recommended**: set up DeepL (free, 1M chars/month). SakuraLLM is optional — only useful if you need offline Japanese→Chinese translation.
+
 ## Requirements
 
 - Python 3.11+, uv
 - Windows 11 (WASAPI Loopback)
 - NVIDIA GPU with CUDA 12.x (optional; falls back to CPU int8)
-- DeepL API key (free, 1M chars lifetime) — or Ollama + SakuraLLM as fallback (ja→zh only)
+- DeepL API key (free) — or Ollama + SakuraLLM for offline ja→zh fallback
 
 ## Setup
 
@@ -30,24 +42,20 @@ uv sync
 copy .env.example .env
 ```
 
-### 2. Get a DeepL API key (free)
+### 2. Get a DeepL API key (free, recommended)
 
 1. Go to [deepl.com/en/pro-api](https://www.deepl.com/en/pro-api) and sign up for a free account
 2. Under **Account** → **API Keys**, create a new key
-3. The free plan includes 1M characters/month at no cost — no credit card required
-
-### 3. Configure `.env`
+3. The free plan includes 1M characters/month — no credit card required
+4. Paste the key into `.env`:
 
 ```
-# DeepL (primary translation)
 DEEPL_API_KEY=your_key_here
-
-# Ollama fallback (optional, ja→zh only)
-OLLAMA_BASE_URL=http://localhost:11434/v1
-SAKURA_MODEL=sakura
 ```
 
-### 4. (Optional) Set up SakuraLLM fallback
+### 3. (Optional) Set up SakuraLLM for offline ja→zh fallback
+
+> Skip this if you have a DeepL API key. SakuraLLM is only needed as an offline fallback for Japanese → Chinese translation.
 
 ```powershell
 winget install Ollama.Ollama
@@ -128,8 +136,6 @@ target_lang = "zh-TW"
 source_lang = "ja"
 target_lang = "en"
 ```
-
-> SakuraLLM fallback is only available for `ja → zh-TW/zh-CN`. All other language pairs require a DeepL API key.
 
 ## Notes
 
