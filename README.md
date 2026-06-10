@@ -1,16 +1,17 @@
 # stream-caption
 
-Real-time Japanese speech recognition and Traditional Chinese translation overlay for YouTube/Twitch live streams and Japanese games.
+Real-time speech recognition and translation overlay for YouTube/Twitch live streams, Japanese games, and video meetings.
 
-**v1.0.0**
+**v1.1.0**
 
 ## Stack
 
 - Audio: `soundcard` (WASAPI Loopback, dedicated recording thread)
-- STT: `faster-whisper large-v3` (local GPU/CUDA, CPU fallback)
-- Translation: DeepL API (primary) → SakuraLLM via Ollama (fallback) → `opencc` s2twp
+- STT: `faster-whisper large-v3` (local GPU/CUDA, CPU fallback, auto language detection)
+- Translation: DeepL API (primary) → SakuraLLM via Ollama (fallback, ja→zh only) → `opencc` s2twp
 - UI: `tkinter` floating overlay (always-on-top, draggable, resizable, position memory)
 - Tray: `pystray` — Pause/Resume/Quit, state icons (active/paused/error)
+- Hotkey: `pynput` — `Ctrl+Shift+H` toggles overlay visibility
 - Config: `.env` + `settings.toml`
 
 ## Requirements
@@ -18,7 +19,7 @@ Real-time Japanese speech recognition and Traditional Chinese translation overla
 - Python 3.11+, uv
 - Windows 11 (WASAPI Loopback)
 - NVIDIA GPU with CUDA 12.x (optional; falls back to CPU int8)
-- DeepL API key (free, 1M chars lifetime) — or Ollama + SakuraLLM as fallback
+- DeepL API key (free, 1M chars lifetime) — or Ollama + SakuraLLM as fallback (ja→zh only)
 
 ## Setup
 
@@ -35,7 +36,7 @@ copy .env.example .env
 # DeepL (primary translation — get free key at deepl.com/en/pro-api)
 DEEPL_API_KEY=your_key_here
 
-# Ollama fallback (optional)
+# Ollama fallback (optional, ja→zh only)
 OLLAMA_BASE_URL=http://localhost:11434/v1
 SAKURA_MODEL=sakura
 ```
@@ -61,6 +62,7 @@ uv run stream-caption
 ```
 
 Right-click the tray icon to Pause/Resume or Quit.
+Press `Ctrl+Shift+H` to toggle overlay visibility.
 
 ## Configuration (`settings.toml`)
 
@@ -78,6 +80,10 @@ vocab = [                    # proper nouns for better STT recognition
     # add game/VTuber names here
 ]
 
+[translation]
+source_lang = "auto"         # "auto" or: ja en ko zh fr de
+target_lang = "zh-TW"        # zh-TW zh-CN en ja ko fr de
+
 [overlay]
 width = 700
 height = 160
@@ -89,7 +95,35 @@ font_size_ja = 12
 fg_zh = "#FFD700"
 fg_ja = "#87CEEB"
 bg_color = "#1a1a1a"
+
+[hotkey]
+toggle = "<ctrl>+<shift>+h"  # toggle overlay visibility
 ```
+
+### Example configurations
+
+**Japanese stream → Traditional Chinese (default)**
+```toml
+[translation]
+source_lang = "auto"
+target_lang = "zh-TW"
+```
+
+**English meeting → Traditional Chinese**
+```toml
+[translation]
+source_lang = "en"
+target_lang = "zh-TW"
+```
+
+**Japanese meeting → English**
+```toml
+[translation]
+source_lang = "ja"
+target_lang = "en"
+```
+
+> SakuraLLM fallback is only available for `ja → zh-TW/zh-CN`. All other language pairs require a DeepL API key.
 
 ## Notes
 
