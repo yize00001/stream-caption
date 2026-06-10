@@ -21,5 +21,9 @@ step_seconds = 2           # Audio chunk size
 min_text_length = 4        # Minimum characters to process
 device = ""                # Speaker name substring to match, empty = system default
 
+[translation]
+source_lang = "auto"    # "auto" or: ja en ko zh fr de
+target_lang = "zh-TW"   # zh-TW zh-CN en ja ko fr de
+
 [hotkey]
 toggle = "<ctrl>+<shift>+h"  # Toggle overlay visibility (pynput format)

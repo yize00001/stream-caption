@@ -86,21 +86,29 @@ def _load_model() -> WhisperModel:
             print(f"CUDA unavailable ({e}), falling back to CPU...")
 
 
-def _transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "", vocab: list[str] | None = None) -> str:
+def _transcribe(
+    model: WhisperModel,
+    audio: np.ndarray,
+    source_lang: str = "auto",
+    prev_text: str = "",
+    vocab: list[str] | None = None,
+) -> tuple[str, str]:
+    """Returns (transcribed_text, detected_language_code)."""
+    whisper_lang = None if source_lang == "auto" else source_lang.lower().split("-")[0]
     vocab_str = " ".join(vocab) if vocab else ""
     prompt = " ".join(filter(None, [vocab_str, prev_text])) or None
-    segments, _ = model.transcribe(
+    segments, info = model.transcribe(
         audio,
-        language="ja",
+        language=whisper_lang,
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
         initial_prompt=prompt,
-        no_repeat_ngram_size=3,          # beam search: block repeating 3-grams
-        compression_ratio_threshold=1.8, # default 2.4; discard repetitive output early
-        log_prob_threshold=-0.8,         # default -1.0; skip low-confidence segments
-        no_speech_threshold=0.7,         # default 0.6; stricter no-speech filtering
+        no_repeat_ngram_size=3,
+        compression_ratio_threshold=1.8,
+        log_prob_threshold=-0.8,
+        no_speech_threshold=0.7,
     )
-    return "".join(seg.text for seg in segments).strip()
+    return "".join(seg.text for seg in segments).strip(), info.language
 
 
 def _record_loop(mic, audio_q: queue.Queue, stop_evt: threading.Event) -> None:
@@ -159,11 +167,14 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
         )
         rec_thread.start()
 
+        src = settings.translation.source_lang
+        tgt = settings.translation.target_lang
+        print(f"Translation: {src} → {tgt}")
         print(f"Logging to: {log_path}")
         print("Listening... Right-click tray icon to Pause or Quit.\n")
 
-        prev_ja = ""
-        prev_zh = ""
+        prev_src = ""
+        prev_tgt = ""
         audio_chunks: list[np.ndarray] = []
 
         while not stop_evt.is_set():
@@ -190,11 +201,15 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
                 continue
 
             t0 = time.time()
-            ja_text = _transcribe(model, window, prev_text=prev_ja, vocab=settings.stt.vocab)
+            src_text, detected_lang = _transcribe(
+                model, window,
+                source_lang=src,
+                prev_text=prev_src,
+                vocab=settings.stt.vocab,
+            )
             stt_ms = (time.time() - t0) * 1000
 
             if stt_ms > 5000:
-                # STT took too long — audio buffer is now stale, flush it
                 audio_chunks.clear()
                 try:
                     while True:
@@ -203,30 +218,39 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
                     pass
                 print(f"[WARN] STT took {stt_ms:.0f}ms, flushed stale audio buffer")
 
-            if not ja_text or len(ja_text) < audio_cfg.min_text_length:
+            if not src_text or len(src_text) < audio_cfg.min_text_length:
                 continue
-            if len(ja_text) > 200:
-                print(f"[WARN] STT output too long ({len(ja_text)} chars), skipping")
+            if len(src_text) > 200:
+                print(f"[WARN] STT output too long ({len(src_text)} chars), skipping")
                 continue
-            if _is_hallucination(ja_text) or _is_duplicate(ja_text, prev_ja):
+            if _is_hallucination(src_text) or _is_duplicate(src_text, prev_src):
                 continue
+
+            # For auto-detect, use detected language; otherwise use configured source
+            effective_src = detected_lang if src == "auto" else src
 
             t1 = time.time()
-            zh_text = translate(ja_text, context_ja=prev_ja, context_zh=prev_zh)
+            tgt_text = translate(
+                src_text,
+                source_lang=effective_src,
+                target_lang=tgt,
+                context_ja=prev_src if effective_src == "ja" else "",
+                context_zh=prev_tgt if effective_src == "ja" else "",
+            )
             tl_ms = (time.time() - t1) * 1000
 
-            if not zh_text:
+            if not tgt_text:
                 continue
 
-            prev_ja = ja_text
-            prev_zh = zh_text
+            prev_src = src_text
+            prev_tgt = tgt_text
 
-            line = f"[STT {stt_ms:.0f}ms] {ja_text}\n[TL  {tl_ms:.0f}ms] {zh_text}\n"
+            line = f"[STT {stt_ms:.0f}ms][{detected_lang}] {src_text}\n[TL  {tl_ms:.0f}ms] {tgt_text}\n"
             print(line)
             log_file.write(line + "\n")
             log_file.flush()
 
-            overlay.push(ja_text, zh_text)
+            overlay.push(src_text, tgt_text)
 
 
 def _create_tray_icon(state: str = "active") -> Image.Image:

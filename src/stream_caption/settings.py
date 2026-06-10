@@ -34,6 +34,12 @@ class STTSettings:
 
 
 @dataclass
+class TranslationSettings:
+    source_lang: str = "auto"   # "auto" or ISO 639-1: ja en ko zh fr de
+    target_lang: str = "zh-TW"  # zh-TW zh-CN en ja ko fr de
+
+
+@dataclass
 class HotkeySettings:
     toggle: str = "<ctrl>+<shift>+h"  # toggle overlay visibility
 
@@ -43,6 +49,7 @@ class Settings:
     overlay: OverlaySettings = field(default_factory=OverlaySettings)
     audio: AudioSettings = field(default_factory=AudioSettings)
     stt: STTSettings = field(default_factory=STTSettings)
+    translation: TranslationSettings = field(default_factory=TranslationSettings)
     hotkey: HotkeySettings = field(default_factory=HotkeySettings)
 
 
@@ -52,7 +59,13 @@ def load_settings() -> Settings:
         return s
     with open(_SETTINGS_PATH, "rb") as f:
         data = tomllib.load(f)
-    for section, obj in (("overlay", s.overlay), ("audio", s.audio), ("stt", s.stt), ("hotkey", s.hotkey)):
+    for section, obj in (
+        ("overlay", s.overlay),
+        ("audio", s.audio),
+        ("stt", s.stt),
+        ("translation", s.translation),
+        ("hotkey", s.hotkey),
+    ):
         for k, v in data.get(section, {}).items():
             if hasattr(obj, k):
                 setattr(obj, k, v)
