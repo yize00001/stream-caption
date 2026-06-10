@@ -95,7 +95,7 @@ def _transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> 
         no_repeat_ngram_size=3,          # beam search: block repeating 3-grams
         compression_ratio_threshold=1.8, # default 2.4; discard repetitive output early
         log_prob_threshold=-0.8,         # default -1.0; skip low-confidence segments
-        no_speech_prob_threshold=0.7,    # default 0.6; stricter no-speech filtering
+        no_speech_threshold=0.7,         # default 0.6; stricter no-speech filtering
     )
     return "".join(seg.text for seg in segments).strip()
 
@@ -103,15 +103,23 @@ def _transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> 
 def _record_loop(mic, audio_q: queue.Queue, stop_evt: threading.Event) -> None:
     sample_rate = 16000
     step_frames = sample_rate * 2
+    consecutive_errors = 0
     while not stop_evt.is_set():
         try:
             chunk = mic.record(numframes=step_frames)
+            consecutive_errors = 0
             mono = (chunk.mean(axis=1) if chunk.ndim > 1 else chunk.flatten()).astype(np.float32)
             if audio_q.full():
                 audio_q.get_nowait()
             audio_q.put_nowait(mono)
         except Exception as e:
-            print(f"[WARN] Audio capture error: {e}")
+            consecutive_errors += 1
+            if consecutive_errors == 1:
+                print(f"[WARN] Audio capture error: {e}")
+            time.sleep(0.5)
+            if consecutive_errors >= 5:
+                print("[ERROR] Audio device lost, record thread exiting")
+                return
 
 
 def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading.Event) -> None:
@@ -143,9 +151,10 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
         model = _load_model()
         mic.record(numframes=sample_rate * audio_cfg.window_seconds)
 
-        threading.Thread(
+        rec_thread = threading.Thread(
             target=_record_loop, args=(mic, audio_q, stop_evt), daemon=True
-        ).start()
+        )
+        rec_thread.start()
 
         print(f"Logging to: {log_path}")
         print("Listening... Right-click tray icon to Pause or Quit.\n")
@@ -155,6 +164,9 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
         audio_chunks: list[np.ndarray] = []
 
         while not stop_evt.is_set():
+            if not rec_thread.is_alive():
+                raise RuntimeError("Audio record thread died, triggering watchdog restart")
+
             if pause_evt.is_set():
                 time.sleep(0.2)
                 continue
