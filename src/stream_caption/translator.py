@@ -12,7 +12,16 @@ _deepl_client: deepl.Translator | None = None
 _deepl_api_key = os.getenv("DEEPL_API_KEY", "")
 if _deepl_api_key:
     _deepl_client = deepl.Translator(_deepl_api_key)
-    print(f"[INFO] DeepL translator initialized")
+    try:
+        _usage = _deepl_client.get_usage()
+        _used = _usage.character.count
+        _limit = _usage.character.limit
+        _remaining = _limit - _used
+        print(f"[INFO] DeepL initialized: {_remaining:,} / {_limit:,} chars remaining ({_used/_limit*100:.1f}% used)")
+        if _remaining < 100_000:
+            print(f"[WARN] DeepL quota low! Only {_remaining:,} chars left, will fallback to SakuraLLM when exhausted")
+    except Exception:
+        print(f"[INFO] DeepL translator initialized")
 
 _sakura_client = OpenAI(
     base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),

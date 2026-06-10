@@ -6,6 +6,7 @@
 # User settings
 settings.toml
 !settings.toml.example
+window-state.json
 
 # Virtual environment
 .venv/

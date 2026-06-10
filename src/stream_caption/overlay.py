@@ -3,13 +3,32 @@ Floating subtitle overlay window using tkinter.
 Runs in its own thread; receives (ja_text, zh_text) pairs via a queue.
 """
 
+import json
 import queue
 import threading
 import tkinter as tk
+from pathlib import Path
 
 from stream_caption.settings import OverlaySettings
 
 MAX_PAIRS = 2
+_STATE_PATH = Path(__file__).parent.parent.parent / "window-state.json"
+
+
+def _load_state() -> dict | None:
+    try:
+        return json.loads(_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_state(x: int, y: int, w: int, h: int) -> None:
+    try:
+        _STATE_PATH.write_text(
+            json.dumps({"x": x, "y": y, "w": w, "h": h}), encoding="utf-8"
+        )
+    except Exception:
+        pass
 
 
 class SubtitleOverlay:
@@ -45,14 +64,29 @@ class SubtitleOverlay:
         root.configure(bg=s.bg_color)
         root.resizable(False, False)
 
-        sw = root.winfo_screenwidth()
-        sh = root.winfo_screenheight()
-        x = (sw - s.width) // 2
-        y = sh - s.height - 60
-        root.geometry(f"{s.width}x{s.height}+{x}+{y}")
+        state = _load_state()
+        if state:
+            w, h = state["w"], state["h"]
+            x, y = state["x"], state["y"]
+        else:
+            w, h = s.width, s.height
+            sw = root.winfo_screenwidth()
+            sh = root.winfo_screenheight()
+            x = (sw - w) // 2
+            y = sh - h - 60
+        root.geometry(f"{w}x{h}+{x}+{y}")
 
         self._drag_x = 0
         self._drag_y = 0
+        _save_timer = [None]
+
+        def schedule_save():
+            if _save_timer[0]:
+                root.after_cancel(_save_timer[0])
+            _save_timer[0] = root.after(
+                1000,
+                lambda: _save_state(root.winfo_x(), root.winfo_y(), root.winfo_width(), root.winfo_height()),
+            )
 
         def on_press(event):
             self._drag_x = event.x
@@ -62,6 +96,7 @@ class SubtitleOverlay:
             dx = event.x - self._drag_x
             dy = event.y - self._drag_y
             root.geometry(f"+{root.winfo_x() + dx}+{root.winfo_y() + dy}")
+            schedule_save()
 
         root.bind("<ButtonPress-1>", on_press)
         root.bind("<B1-Motion>", on_drag)
@@ -100,6 +135,7 @@ class SubtitleOverlay:
             new_w = max(300, root.winfo_width() + dx)
             new_h = max(60, root.winfo_height() + dy)
             root.geometry(f"{new_w}x{new_h}")
+            schedule_save()
 
         grip.bind("<ButtonPress-1>", on_grip_press)
         grip.bind("<B1-Motion>", on_grip_drag)
