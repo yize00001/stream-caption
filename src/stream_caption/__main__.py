@@ -70,6 +70,15 @@ def _is_duplicate(new: str, prev: str) -> bool:
     return difflib.SequenceMatcher(None, new, prev).ratio() > 0.8
 
 
+def _is_laughter(text: str) -> bool:
+    """Detect pure laughter/filler sounds like フフフフ, ははは that cause very long STT."""
+    stripped = [c for c in text if c not in " 　、。…"]
+    if len(stripped) < 4:
+        return False
+    most_common = max(set(stripped), key=stripped.count)
+    return stripped.count(most_common) / len(stripped) > 0.65
+
+
 def _load_model() -> WhisperModel:
     for device, compute in [("cuda", "float16"), ("cpu", "int8")]:
         try:
@@ -173,9 +182,19 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
             ja_text = _transcribe(model, window, prev_text=prev_ja)
             stt_ms = (time.time() - t0) * 1000
 
+            if stt_ms > 5000:
+                # STT took too long — audio buffer is now stale, flush it
+                audio_chunks.clear()
+                try:
+                    while True:
+                        audio_q.get_nowait()
+                except queue.Empty:
+                    pass
+                print(f"[WARN] STT took {stt_ms:.0f}ms, flushed stale audio buffer")
+
             if not ja_text or len(ja_text) < audio_cfg.min_text_length:
                 continue
-            if _is_hallucination(ja_text) or _is_duplicate(ja_text, prev_ja):
+            if _is_hallucination(ja_text) or _is_duplicate(ja_text, prev_ja) or _is_laughter(ja_text):
                 continue
 
             t1 = time.time()
