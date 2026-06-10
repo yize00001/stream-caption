@@ -25,14 +25,22 @@
 
 ## 安裝步驟
 
-### 1. 安裝依賴套件
+### 1. 安裝 Python 與 uv
+
+1. 下載並安裝 [Python 3.11+](https://www.python.org/downloads/)，安裝時勾選 **「Add Python to PATH」**
+2. 安裝 uv（套件管理工具）：
+```powershell
+pip install uv
+```
+
+### 2. 安裝依賴套件
 
 ```powershell
 uv sync
 copy .env.example .env
 ```
 
-### 2. 申請 DeepL API key（免費，建議設定）
+### 3. 申請 DeepL API key（免費，建議設定）
 
 1. 前往 [deepl.com/en/pro-api](https://www.deepl.com/en/pro-api) 註冊免費帳號
 2. 登入後進入 **Account** → **API Keys**，點選 **Create API key**
@@ -43,7 +51,7 @@ copy .env.example .env
 DEEPL_API_KEY=your_key_here
 ```
 
-### 3. （選配）設定 SakuraLLM 離線日文→中文備援
+### 4. （選配）設定 SakuraLLM 離線日文→中文備援
 
 > 如果已有 DeepL API key 可跳過此步驟。SakuraLLM 僅在 DeepL 無法使用時作為備援。
 

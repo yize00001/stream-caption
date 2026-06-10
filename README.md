@@ -35,14 +35,22 @@ Real-time speech recognition and translation overlay for YouTube/Twitch live str
 
 ## Setup
 
-### 1. Install dependencies
+### 1. Install Python and uv
+
+1. Download and install [Python 3.11+](https://www.python.org/downloads/) — check **"Add Python to PATH"** during installation
+2. Install uv (package manager):
+```powershell
+pip install uv
+```
+
+### 2. Install dependencies
 
 ```powershell
 uv sync
 copy .env.example .env
 ```
 
-### 2. Get a DeepL API key (free, recommended)
+### 3. Get a DeepL API key (free, recommended)
 
 1. Go to [deepl.com/en/pro-api](https://www.deepl.com/en/pro-api) and sign up for a free account
 2. Under **Account** → **API Keys**, create a new key
@@ -53,7 +61,7 @@ copy .env.example .env
 DEEPL_API_KEY=your_key_here
 ```
 
-### 3. (Optional) Set up SakuraLLM for offline ja→zh fallback
+### 4. (Optional) Set up SakuraLLM for offline ja→zh fallback
 
 > Skip this if you have a DeepL API key. SakuraLLM is only needed as an offline fallback for Japanese → Chinese translation.
 
