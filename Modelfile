@@ -18,5 +18,5 @@ SYSTEM """你是一個日文翻譯模型。將使用者提供的日文句子翻�
 PARAMETER temperature 0.1
 PARAMETER top_p 0.9
 PARAMETER stop "<|im_end|>"
-PARAMETER num_ctx 256
-PARAMETER num_predict 150
+PARAMETER num_ctx 2048
+PARAMETER num_predict 256

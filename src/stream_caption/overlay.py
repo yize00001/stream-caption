@@ -82,6 +82,28 @@ class SubtitleOverlay:
         txt.config(state="disabled")
         txt.pack(fill="both", expand=True)
 
+        # Resize grip — bottom-right corner
+        grip = tk.Label(root, bg=s.bg_color, cursor="sizing", text="⠿", fg="#444444")
+        grip.place(relx=1.0, rely=1.0, anchor="se")
+
+        _rx, _ry = [0], [0]
+
+        def on_grip_press(event):
+            _rx[0] = event.x_root
+            _ry[0] = event.y_root
+
+        def on_grip_drag(event):
+            dx = event.x_root - _rx[0]
+            dy = event.y_root - _ry[0]
+            _rx[0] = event.x_root
+            _ry[0] = event.y_root
+            new_w = max(300, root.winfo_width() + dx)
+            new_h = max(60, root.winfo_height() + dy)
+            root.geometry(f"{new_w}x{new_h}")
+
+        grip.bind("<ButtonPress-1>", on_grip_press)
+        grip.bind("<B1-Motion>", on_grip_drag)
+
         hide_timer = [None]
 
         def hide():

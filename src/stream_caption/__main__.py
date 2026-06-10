@@ -196,12 +196,18 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
             overlay.push(ja_text, zh_text)
 
 
-def _create_tray_icon() -> Image.Image:
+def _create_tray_icon(state: str = "active") -> Image.Image:
+    colors = {
+        "active": ("#FFD700", "#87CEEB"),
+        "paused": ("#555555", "#555555"),
+        "error":  ("#FF4444", "#FF4444"),
+    }
+    c1, c2 = colors.get(state, colors["active"])
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     draw.rounded_rectangle([2, 2, 62, 62], radius=12, fill="#1a1a1a")
-    draw.rounded_rectangle([10, 18, 54, 28], radius=3, fill="#FFD700")
-    draw.rounded_rectangle([10, 34, 44, 44], radius=3, fill="#87CEEB")
+    draw.rounded_rectangle([10, 18, 54, 28], radius=3, fill=c1)
+    draw.rounded_rectangle([10, 34, 44, 44], radius=3, fill=c2)
     return img
 
 
@@ -221,9 +227,11 @@ def _pipeline_watchdog(settings, overlay, stop_evt: threading.Event, pause_evt: 
 
         print("[WARN] Pipeline stopped unexpectedly, restarting in 3s...")
         if tray_ref[0]:
+            tray_ref[0].icon = _create_tray_icon("error")
             tray_ref[0].title = "stream-caption (restarting...)"
         time.sleep(3)
         if tray_ref[0] and not pause_evt.is_set():
+            tray_ref[0].icon = _create_tray_icon("active")
             tray_ref[0].title = "stream-caption"
 
 
@@ -249,9 +257,11 @@ def main():
     def on_toggle_pause(icon, item):
         if pause_evt.is_set():
             pause_evt.clear()
+            icon.icon = _create_tray_icon("active")
             icon.title = "stream-caption"
         else:
             pause_evt.set()
+            icon.icon = _create_tray_icon("paused")
             icon.title = "stream-caption (paused)"
 
     def pause_label(item):
