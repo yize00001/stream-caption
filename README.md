@@ -30,10 +30,16 @@ uv sync
 copy .env.example .env
 ```
 
-### 2. Configure `.env`
+### 2. Get a DeepL API key (free)
+
+1. Go to [deepl.com/en/pro-api](https://www.deepl.com/en/pro-api) and sign up for a free account
+2. Under **Account** → **API Keys**, create a new key
+3. The free plan includes 1M characters/month at no cost — no credit card required
+
+### 3. Configure `.env`
 
 ```
-# DeepL (primary translation — get free key at deepl.com/en/pro-api)
+# DeepL (primary translation)
 DEEPL_API_KEY=your_key_here
 
 # Ollama fallback (optional, ja→zh only)
@@ -41,7 +47,7 @@ OLLAMA_BASE_URL=http://localhost:11434/v1
 SAKURA_MODEL=sakura
 ```
 
-### 3. (Optional) Set up SakuraLLM fallback
+### 4. (Optional) Set up SakuraLLM fallback
 
 ```powershell
 winget install Ollama.Ollama
