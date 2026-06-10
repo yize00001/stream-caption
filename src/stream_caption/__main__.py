@@ -205,6 +205,28 @@ def _create_tray_icon() -> Image.Image:
     return img
 
 
+def _pipeline_watchdog(settings, overlay, stop_evt: threading.Event, pause_evt: threading.Event, tray_ref: list) -> None:
+    """Restart pipeline thread if it crashes, update tray tooltip to reflect state."""
+    while not stop_evt.is_set():
+        t = threading.Thread(
+            target=_pipeline,
+            args=(settings, overlay, stop_evt, pause_evt),
+            daemon=True,
+        )
+        t.start()
+        t.join()  # wait until pipeline exits (normal or crash)
+
+        if stop_evt.is_set():
+            break
+
+        print("[WARN] Pipeline stopped unexpectedly, restarting in 3s...")
+        if tray_ref[0]:
+            tray_ref[0].title = "stream-caption (restarting...)"
+        time.sleep(3)
+        if tray_ref[0] and not pause_evt.is_set():
+            tray_ref[0].title = "stream-caption"
+
+
 def main():
     settings = load_settings()
     overlay = SubtitleOverlay(settings.overlay)
@@ -212,10 +234,11 @@ def main():
 
     stop_evt = threading.Event()
     pause_evt = threading.Event()
+    tray_ref: list = [None]
 
     threading.Thread(
-        target=_pipeline,
-        args=(settings, overlay, stop_evt, pause_evt),
+        target=_pipeline_watchdog,
+        args=(settings, overlay, stop_evt, pause_evt, tray_ref),
         daemon=True,
     ).start()
 
@@ -240,6 +263,7 @@ def main():
     )
 
     tray = pystray.Icon("stream-caption", _create_tray_icon(), "stream-caption", menu)
+    tray_ref[0] = tray
     print("Subtitle overlay started. Right-click the tray icon to Pause or Quit.\n")
     tray.run()
 

@@ -38,10 +38,11 @@ def translate(text: str, context_ja: str = "", context_zh: str = "") -> str:
         resp = _client.chat.completions.create(
             model=os.getenv("SAKURA_MODEL", "sakura"),
             messages=messages,
-            max_tokens=150,
+            max_tokens=256,
             temperature=0.1,
         )
         result = _extract_first_line(resp.choices[0].message.content or "")
         return _cc.convert(result)
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] Translation error: {e}")
         return ""
