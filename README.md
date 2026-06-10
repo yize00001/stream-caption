@@ -62,3 +62,9 @@ uv run python scripts/test_audio.py
 - Windows only (WASAPI Loopback)
 - CUDA DLL workaround: copy `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` from `CUDA\v12.x\bin` to `.venv\Lib\site-packages\ctranslate2\`
 - Double-click the overlay window to close
+
+## Credits
+
+- [SakuraLLM](https://github.com/SakuraLLM/Sakura-13B-Galgame) — ACGN-specialized Japanese→Chinese translation model, licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — Speech recognition
+- [Ollama](https://ollama.com) — Local LLM runtime
