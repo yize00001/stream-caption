@@ -85,13 +85,15 @@ def _load_model() -> WhisperModel:
             print(f"CUDA unavailable ({e}), falling back to CPU...")
 
 
-def _transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> str:
+def _transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "", vocab: list[str] | None = None) -> str:
+    vocab_str = " ".join(vocab) if vocab else ""
+    prompt = " ".join(filter(None, [vocab_str, prev_text])) or None
     segments, _ = model.transcribe(
         audio,
         language="ja",
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
-        initial_prompt=prev_text if prev_text else None,
+        initial_prompt=prompt,
         no_repeat_ngram_size=3,          # beam search: block repeating 3-grams
         compression_ratio_threshold=1.8, # default 2.4; discard repetitive output early
         log_prob_threshold=-0.8,         # default -1.0; skip low-confidence segments
@@ -187,7 +189,7 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
                 continue
 
             t0 = time.time()
-            ja_text = _transcribe(model, window, prev_text=prev_ja)
+            ja_text = _transcribe(model, window, prev_text=prev_ja, vocab=settings.stt.vocab)
             stt_ms = (time.time() - t0) * 1000
 
             if stt_ms > 5000:

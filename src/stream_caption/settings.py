@@ -29,9 +29,15 @@ class AudioSettings:
 
 
 @dataclass
+class STTSettings:
+    vocab: list[str] = field(default_factory=list)  # proper nouns for initial_prompt
+
+
+@dataclass
 class Settings:
     overlay: OverlaySettings = field(default_factory=OverlaySettings)
     audio: AudioSettings = field(default_factory=AudioSettings)
+    stt: STTSettings = field(default_factory=STTSettings)
 
 
 def load_settings() -> Settings:
@@ -40,7 +46,7 @@ def load_settings() -> Settings:
         return s
     with open(_SETTINGS_PATH, "rb") as f:
         data = tomllib.load(f)
-    for section, obj in (("overlay", s.overlay), ("audio", s.audio)):
+    for section, obj in (("overlay", s.overlay), ("audio", s.audio), ("stt", s.stt)):
         for k, v in data.get(section, {}).items():
             if hasattr(obj, k):
                 setattr(obj, k, v)
