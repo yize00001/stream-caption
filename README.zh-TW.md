@@ -2,7 +2,7 @@
 
 即時語音辨識與翻譯字幕浮動視窗，適用於 YouTube / Twitch 日文直播、日文遊戲、或與外國客戶的視訊會議。
 
-**v1.2.0** | [English](README.md)
+**v1.3.0** | [English](README.md)
 
 ## 翻譯後端說明
 
