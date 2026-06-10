@@ -1,0 +1,22 @@
+# SakuraLLM Ollama Modelfile
+# 使用方法：
+#   1. 從 HuggingFace 下載 GGUF：
+#      https://huggingface.co/SakuraLLM/Sakura-14B-Qwen2.5-v1.0-GGUF
+#   2. 執行：ollama create sakura -f Modelfile
+
+FROM D:/models/sakura-14b-qwen2.5-v1.0-q4km.gguf
+
+TEMPLATE """<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""
+
+SYSTEM """你是一個日文翻譯模型。將使用者提供的日文句子翻譯成繁體中文（台灣用語）。只輸出翻譯結果，不加任何說明、解釋或額外內容。"""
+
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER stop "<|im_end|>"
+PARAMETER num_ctx 256
+PARAMETER num_predict 150

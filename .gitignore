@@ -1,8 +1,9 @@
-# 環境設定
+# Environment
 .env
 .env.*
+!.env.example
 
-# 虛擬環境
+# Virtual environment
 .venv/
 
 # Python
@@ -11,12 +12,16 @@ __pycache__/
 *.pyo
 *.pyd
 
-# 資料庫 / log
+# Database / logs
 *.db
 *.log
+logs/
 
 # uv
 .python-version
+
+# Claude Code
+.claude/
 
 # IDE
 .vscode/

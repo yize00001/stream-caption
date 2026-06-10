@@ -7,12 +7,18 @@ dependencies = [
     "soundcard",
     "faster-whisper",
     "anthropic",
+    "openai",
+    "opencc-python-reimplemented",
     "python-dotenv",
+    "deep-translator",
 ]
+
+[project.scripts]
+stream-caption = "stream_caption.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv]
-dev-dependencies = []
+[tool.hatch.build.targets.wheel]
+packages = ["src/stream_caption"]
