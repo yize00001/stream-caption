@@ -8,17 +8,18 @@ import threading
 import tkinter as tk
 
 
-MAX_PAIRS = 2           # number of ja+zh pairs to show
+MAX_PAIRS = 2
 FONT_FAMILY = "Microsoft JhengHei"
 FONT_SIZE_ZH = 18
 FONT_SIZE_JA = 12
 BG_COLOR = "#1a1a1a"
-FG_ZH = "#FFD700"  # yellow — classic subtitle color
-FG_JA = "#87CEEB"  # light blue — distinguishable from Chinese
-OPACITY = 0.85
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 200
-PADDING = 10
+FG_ZH = "#FFD700"
+FG_JA = "#87CEEB"
+OPACITY = 0.88
+WINDOW_WIDTH = 700
+WINDOW_HEIGHT = 160
+PADDING = 8
+AUTO_HIDE_MS = 8000  # hide overlay after 8s of no new subtitle
 
 
 class SubtitleOverlay:
@@ -48,7 +49,7 @@ class SubtitleOverlay:
         root.title("stream-caption")
         root.overrideredirect(True)
         root.attributes("-topmost", True)
-        root.attributes("-alpha", OPACITY)
+        root.attributes("-alpha", 0)  # hidden until first subtitle arrives
         root.configure(bg=BG_COLOR)
         root.resizable(False, False)
 
@@ -89,6 +90,11 @@ class SubtitleOverlay:
         txt.config(state="disabled")
         txt.pack(fill="both", expand=True)
 
+        hide_timer = [None]
+
+        def hide():
+            root.attributes("-alpha", 0)
+
         def poll():
             updated = False
             try:
@@ -102,6 +108,10 @@ class SubtitleOverlay:
                 pass
             if updated:
                 self._render(txt)
+                root.attributes("-alpha", OPACITY)
+                if hide_timer[0]:
+                    root.after_cancel(hide_timer[0])
+                hide_timer[0] = root.after(AUTO_HIDE_MS, hide)
             root.after(100, poll)
 
         root.after(100, poll)

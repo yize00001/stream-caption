@@ -1,7 +1,7 @@
 """
 stream-caption entry point.
 Captures system audio via WASAPI Loopback, transcribes Japanese speech with
-faster-whisper, translates to Traditional Chinese with Claude Haiku, and
+faster-whisper, translates to Traditional Chinese with SakuraLLM, and
 displays results in a floating tkinter overlay.
 
 Usage: uv run stream-caption
@@ -9,7 +9,10 @@ Usage: uv run stream-caption
 
 import difflib
 import os
+import queue
+import threading
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -38,6 +41,7 @@ _cuda_bin = _find_cuda_bin()
 if _cuda_bin:
     os.add_dll_directory(_cuda_bin)
 
+warnings.filterwarnings("ignore", message="data discontinuity", category=UserWarning)
 import soundcard as sc
 from faster_whisper import WhisperModel
 
@@ -95,6 +99,19 @@ def transcribe(model: WhisperModel, audio: np.ndarray, prev_text: str = "") -> s
     return "".join(seg.text for seg in segments).strip()
 
 
+def _record_loop(mic: sc.core.Recorder, audio_q: "queue.Queue[np.ndarray]") -> None:
+    """Continuously capture audio chunks into the queue, independent of processing speed."""
+    while True:
+        try:
+            chunk = mic.record(numframes=SAMPLE_RATE * STEP_SECONDS)
+            mono = (chunk.mean(axis=1) if chunk.ndim > 1 else chunk.flatten()).astype(np.float32)
+            if audio_q.full():
+                audio_q.get_nowait()  # drop oldest to avoid unbounded backlog
+            audio_q.put_nowait(mono)
+        except Exception as e:
+            print(f"[WARN] Audio capture error, skipping: {e}")
+
+
 def main():
     overlay = SubtitleOverlay()
     overlay.start()
@@ -110,8 +127,12 @@ def main():
     log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
     prev_ja = ""
+    prev_zh = ""
     audio_chunks: list[np.ndarray] = []
     max_chunks = WINDOW_SECONDS // STEP_SECONDS  # 2 chunks of 2s = 4s window
+
+    # queue holds at most max_chunks * 2 chunks to allow some backlog without growing forever
+    audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=max_chunks * 2)
 
     with sc.get_microphone(default_speaker.id, include_loopback=True).recorder(
         samplerate=SAMPLE_RATE
@@ -120,12 +141,13 @@ def main():
         # Discard audio buffered during model loading
         mic.record(numframes=SAMPLE_RATE * WINDOW_SECONDS)
 
+        threading.Thread(target=_record_loop, args=(mic, audio_q), daemon=True).start()
+
         print(f"Logging to: {log_path}")
         print("Listening... Press Ctrl+C to stop.\n")
 
         while True:
-            audio = mic.record(numframes=SAMPLE_RATE * STEP_SECONDS)
-            mono = (audio.mean(axis=1) if audio.ndim > 1 else audio.flatten()).astype(np.float32)
+            mono = audio_q.get()
 
             audio_chunks.append(mono)
             if len(audio_chunks) > max_chunks:
@@ -148,13 +170,14 @@ def main():
                 continue
 
             t1 = time.time()
-            zh_text = translate(ja_text, context=prev_ja)
+            zh_text = translate(ja_text, context_ja=prev_ja, context_zh=prev_zh)
             tl_ms = (time.time() - t1) * 1000
 
             if not zh_text:
                 continue
 
             prev_ja = ja_text
+            prev_zh = zh_text
 
             line = f"[STT {stt_ms:.0f}ms] {ja_text}\n[TL  {tl_ms:.0f}ms] {zh_text}\n"
             print(line)
