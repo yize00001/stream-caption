@@ -105,7 +105,7 @@ def _translate_sakura(text: str, target_lang: str, context_ja: str = "", context
 
 
 def _is_ja_to_zh(source_lang: str, target_lang: str) -> bool:
-    return source_lang.lower() in ("ja", "auto") and target_lang.lower() in ("zh-tw", "zh-cn", "zh")
+    return source_lang.lower() == "ja" and target_lang.lower() in ("zh-tw", "zh-cn", "zh")
 
 
 def translate(

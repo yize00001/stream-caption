@@ -2,7 +2,7 @@
 
 Real-time speech recognition and translation overlay for YouTube/Twitch live streams, Japanese games, and video meetings.
 
-**v1.3.0** | [繁體中文說明](README.zh-TW.md)
+**v1.3.1** | [繁體中文說明](README.zh-TW.md)
 
 ## Stack
 
@@ -97,6 +97,7 @@ step_seconds = 2
 min_text_length = 4
 
 [stt]
+beam_size = 5                # 1=fastest, 5=most accurate (default)
 vocab = [                    # proper nouns for better STT recognition
     "にじさんじ", "ホロライブ",
     # add game/VTuber names here

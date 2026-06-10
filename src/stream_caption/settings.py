@@ -31,6 +31,7 @@ class AudioSettings:
 @dataclass
 class STTSettings:
     vocab: list[str] = field(default_factory=list)  # proper nouns for initial_prompt
+    beam_size: int = 5  # 1=fastest, 5=most accurate
 
 
 @dataclass

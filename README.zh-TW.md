@@ -2,7 +2,7 @@
 
 即時語音辨識與翻譯字幕浮動視窗，適用於 YouTube / Twitch 日文直播、日文遊戲、或與外國客戶的視訊會議。
 
-**v1.3.0** | [English](README.md)
+**v1.3.1** | [English](README.md)
 
 ## 翻譯後端說明
 
@@ -90,6 +90,7 @@ step_seconds = 2
 min_text_length = 4
 
 [stt]
+beam_size = 5                # 辨識精度 vs 速度：1=最快，5=最準確（預設）
 vocab = [                    # 幫助 Whisper 辨識的專有名詞
     "にじさんじ", "ホロライブ",
     # 可加入遊戲名、角色名等

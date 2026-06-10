@@ -7,12 +7,14 @@ displays results in a floating tkinter overlay.
 Usage: uv run stream-caption
 """
 
+import contextlib
 import difflib
 import os
 import queue
 import threading
 import time
 import warnings
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -76,7 +78,7 @@ def _load_model() -> WhisperModel:
     for device, compute in [("cuda", "float16"), ("cpu", "int8")]:
         try:
             print(f"Loading faster-whisper large-v3 ({device.upper()})...")
-            print("(First run will download ~3GB model — this may take a few minutes)")
+            print("(Model will be downloaded on first run, ~3GB)")
             start = time.time()
             model = WhisperModel("large-v3", device=device, compute_type=compute)
             print(f"Model loaded in {time.time() - start:.1f}s\n")
@@ -93,6 +95,7 @@ def _transcribe(
     source_lang: str = "auto",
     prev_text: str = "",
     vocab: list[str] | None = None,
+    beam_size: int = 5,
 ) -> tuple[str, str]:
     """Returns (transcribed_text, detected_language_code)."""
     whisper_lang = None if source_lang == "auto" else source_lang.lower().split("-")[0]
@@ -101,6 +104,7 @@ def _transcribe(
     segments, info = model.transcribe(
         audio,
         language=whisper_lang,
+        beam_size=beam_size,
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
         initial_prompt=prompt,
@@ -153,8 +157,6 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
     if _cuda_bin:
         print(f"CUDA bin: {_cuda_bin}")
 
-    import contextlib
-
     log_path = None
     if settings.log.enabled:
         log_dir = Path(__file__).parent.parent.parent / "logs"
@@ -186,7 +188,7 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
 
         prev_src = ""
         prev_tgt = ""
-        audio_chunks: list[np.ndarray] = []
+        audio_chunks: deque[np.ndarray] = deque(maxlen=max_chunks)
 
         while not stop_evt.is_set():
             if not rec_thread.is_alive():
@@ -202,8 +204,6 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
                 continue
 
             audio_chunks.append(mono)
-            if len(audio_chunks) > max_chunks:
-                audio_chunks.pop(0)
             if len(audio_chunks) < max_chunks:
                 continue
 
@@ -217,6 +217,7 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
                 source_lang=src,
                 prev_text=prev_src,
                 vocab=settings.stt.vocab,
+                beam_size=settings.stt.beam_size,
             )
             stt_ms = (time.time() - t0) * 1000
 
