@@ -35,6 +35,9 @@ pip install uv
 
 ### 2. 安裝依賴套件
 
+> **Windows 注意：** 若 `uv sync` 出現符號連結錯誤，請先開啟開發人員模式：
+> **設定 → 系統 → 開發人員專用 → 開發人員模式 → 開啟**
+
 ```powershell
 uv sync
 copy .env.example .env
@@ -76,6 +79,11 @@ uv run stream-caption
 
 - 右鍵點選系統匣圖示可 **暫停 / 繼續 / 結束**
 - 按 `Ctrl+Shift+H` 切換字幕視窗顯示/隱藏
+
+> **首次啟動：** Whisper 模型（~3GB）會在啟動時自動下載。
+> 下載期間系統匣圖示 tooltip 會顯示 **「downloading model...」**。
+> 請等到終端機出現 `✓ Model ready` 才表示準備完成。
+> 過程中出現 HuggingFace 的速率限制警告屬正常現象，可忽略。
 
 ## 設定檔（`settings.toml`）
 

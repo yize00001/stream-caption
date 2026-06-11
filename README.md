@@ -45,6 +45,9 @@ pip install uv
 
 ### 2. Install dependencies
 
+> **Windows:** If you see a symlink error during `uv sync`, enable Developer Mode first:
+> **Settings → System → For developers → Developer Mode → On**
+
 ```powershell
 uv sync
 copy .env.example .env
@@ -85,6 +88,11 @@ uv run stream-caption
 
 Right-click the tray icon to Pause/Resume or Quit.
 Press `Ctrl+Shift+H` to toggle overlay visibility.
+
+> **First run:** The Whisper model (~3GB) will be downloaded automatically on startup.
+> The tray icon tooltip will show **"downloading model..."** during this time.
+> Wait until the terminal shows `✓ Model ready` before expecting subtitles.
+> A HuggingFace rate-limit warning may appear — this is harmless and can be ignored.
 
 ## Configuration (`settings.toml`)
 

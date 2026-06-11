@@ -74,14 +74,31 @@ def _is_duplicate(new: str, prev: str) -> bool:
 
 
 
-def _load_model() -> WhisperModel:
+def _is_model_cached() -> bool:
+    cache = Path.home() / ".cache" / "huggingface" / "hub" / "models--Systran--faster-whisper-large-v3"
+    return cache.exists()
+
+
+def _load_model(tray_ref: list | None = None) -> WhisperModel:
+    first_run = not _is_model_cached()
+    if first_run:
+        print("=" * 55)
+        print("  First run: downloading faster-whisper large-v3 (~3GB)")
+        print("  This may take several minutes — please wait...")
+        print("=" * 55)
+        if tray_ref and tray_ref[0]:
+            tray_ref[0].title = "stream-caption (downloading model...)"
     for device, compute in [("cuda", "float16"), ("cpu", "int8")]:
         try:
             print(f"Loading faster-whisper large-v3 ({device.upper()})...")
-            print("(Model will be downloaded on first run, ~3GB)")
             start = time.time()
             model = WhisperModel("large-v3", device=device, compute_type=compute)
-            print(f"Model loaded in {time.time() - start:.1f}s\n")
+            elapsed = time.time() - start
+            print(f"")
+            print(f"  ✓ Model ready ({device.upper()}, {elapsed:.1f}s)")
+            print(f"")
+            if tray_ref and tray_ref[0]:
+                tray_ref[0].title = "stream-caption"
             return model
         except Exception as e:
             if device == "cpu":
@@ -141,7 +158,7 @@ def _record_loop(mic, audio_q: queue.Queue, stop_evt: threading.Event) -> None:
                 return
 
 
-def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading.Event) -> None:
+def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading.Event, tray_ref: list | None = None) -> None:
     audio_cfg = settings.audio
     sample_rate = 16000
     max_chunks = audio_cfg.window_seconds // audio_cfg.step_seconds
@@ -172,7 +189,7 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
     with sc.get_microphone(speaker.id, include_loopback=True).recorder(
         samplerate=sample_rate
     ) as mic, log_ctx as log_file:
-        model = _load_model()
+        model = _load_model(tray_ref=tray_ref)
         mic.record(numframes=sample_rate * audio_cfg.window_seconds)
 
         rec_thread = threading.Thread(
@@ -290,7 +307,7 @@ def _pipeline_watchdog(settings, overlay, stop_evt: threading.Event, pause_evt: 
     while not stop_evt.is_set():
         t = threading.Thread(
             target=_pipeline,
-            args=(settings, overlay, stop_evt, pause_evt),
+            args=(settings, overlay, stop_evt, pause_evt, tray_ref),
             daemon=True,
         )
         t.start()
