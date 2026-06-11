@@ -20,8 +20,10 @@
 
 - Python 3.11+、uv
 - Windows 11（WASAPI Loopback）
-- NVIDIA GPU + CUDA 12.x（選配，無 GPU 自動切換 CPU 模式）
+- **NVIDIA GPU ≥4GB VRAM + CUDA 12.x — 即時使用必須**
 - DeepL 免費 API key — 或使用 Ollama + SakuraLLM 做離線備援（僅日文→中文）
+
+> ⚠️ **沒有 GPU 無法即時使用。** CPU 模式每段語音需要 20–30 秒才能辨識，對話早已繼續，完全來不及。CPU 模式僅適合非即時用途（錄音回放、慢速內容）。
 
 ## 安裝步驟
 

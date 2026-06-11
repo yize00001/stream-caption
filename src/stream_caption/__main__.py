@@ -13,7 +13,6 @@ import os
 import queue
 import threading
 import time
-import warnings
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -44,7 +43,6 @@ _cuda_bin = _find_cuda_bin()
 if _cuda_bin:
     os.add_dll_directory(_cuda_bin)
 
-warnings.filterwarnings("ignore", message="data discontinuity", category=UserWarning)
 import soundcard as sc
 from faster_whisper import WhisperModel
 from PIL import Image, ImageDraw
@@ -86,6 +84,27 @@ _MODEL_SIZES = {
 }
 
 
+def _detect_best_model() -> str:
+    """Pick model based on available GPU VRAM. Falls back to medium for CPU."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            vram_mb = int(result.stdout.strip().splitlines()[0])
+            if vram_mb >= 4000:
+                return "large-v3"
+            elif vram_mb >= 2000:
+                return "medium"
+            else:
+                return "small"
+    except Exception:
+        pass
+    return "medium"  # no GPU or nvidia-smi not found
+
+
 def _load_model(model_name: str = "large-v3", tray_ref: list | None = None) -> WhisperModel:
     first_run = not _is_model_cached(model_name)
     size_hint = _MODEL_SIZES.get(model_name, "")
@@ -112,6 +131,11 @@ def _load_model(model_name: str = "large-v3", tray_ref: list | None = None) -> W
             if device == "cpu":
                 raise
             print(f"CUDA unavailable ({e}), falling back to CPU...")
+            print("")
+            print("  ⚠️  WARNING: No compatible GPU found — running in CPU mode")
+            print("      STT will take 20–30s per segment, not suitable for live use.")
+            print("      For real-time use, an NVIDIA GPU with ≥4GB VRAM is required.")
+            print("")
 
 
 def _transcribe(
@@ -145,12 +169,15 @@ def _transcribe(
 
 
 def _record_loop(mic, audio_q: queue.Queue, stop_evt: threading.Event) -> None:
+    import warnings
     sample_rate = 16000
     step_frames = sample_rate * 2
     consecutive_errors = 0
     while not stop_evt.is_set():
         try:
-            chunk = mic.record(numframes=step_frames)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                chunk = mic.record(numframes=step_frames)
             consecutive_errors = 0
             mono = (chunk.mean(axis=1) if chunk.ndim > 1 else chunk.flatten()).astype(np.float32)
             if audio_q.full():
@@ -197,7 +224,11 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
     with sc.get_microphone(speaker.id, include_loopback=True).recorder(
         samplerate=sample_rate
     ) as mic, log_ctx as log_file:
-        model = _load_model(model_name=settings.stt.model, tray_ref=tray_ref)
+        model_name = settings.stt.model
+        if model_name == "auto":
+            model_name = _detect_best_model()
+            print(f"[INFO] Auto-detected model: {model_name}")
+        model = _load_model(model_name=model_name, tray_ref=tray_ref)
         mic.record(numframes=sample_rate * audio_cfg.window_seconds)
 
         rec_thread = threading.Thread(

@@ -22,8 +22,8 @@ min_text_length = 4        # Minimum characters to process
 device = ""                # Speaker name substring to match, empty = system default
 
 [stt]
-model = "large-v3"       # large-v3 (best, ~3GB) / medium (~1.5GB) / small (~500MB)
-                         # Use medium or small on low-end PCs without a dedicated GPU
+model = "auto"           # auto (recommended) / large-v3 (~3GB) / medium (~1.5GB) / small (~500MB)
+                         # auto: picks large-v3 if ≥4GB VRAM, medium if 2-3GB, small otherwise
 beam_size = 5            # STT accuracy vs speed: 1=fastest, 5=most accurate (default)
 # vocab = [              # Uncomment to add proper nouns for better recognition
 #     "にじさんじ", "ホロライブ",

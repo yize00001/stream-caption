@@ -30,8 +30,10 @@ Real-time speech recognition and translation overlay for YouTube/Twitch live str
 
 - Python 3.11+, uv
 - Windows 11 (WASAPI Loopback)
-- NVIDIA GPU with CUDA 12.x (optional; falls back to CPU int8)
+- **NVIDIA GPU with ≥4GB VRAM + CUDA 12.x — required for real-time use**
 - DeepL API key (free) — or Ollama + SakuraLLM for offline ja→zh fallback
+
+> ⚠️ **CPU mode is not suitable for live use.** Without a GPU, each segment takes 20–30 seconds to transcribe — too slow for real-time conversation. CPU mode exists as a fallback but is only practical for non-live audio (recordings, slow-paced content).
 
 ## Setup
 
