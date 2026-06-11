@@ -229,7 +229,10 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
             model_name = _detect_best_model()
             print(f"[INFO] Auto-detected model: {model_name}")
         model = _load_model(model_name=model_name, tray_ref=tray_ref)
-        mic.record(numframes=sample_rate * audio_cfg.window_seconds)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mic.record(numframes=sample_rate * audio_cfg.window_seconds)
 
         rec_thread = threading.Thread(
             target=_record_loop, args=(mic, audio_q, stop_evt), daemon=True
