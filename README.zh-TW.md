@@ -2,7 +2,7 @@
 
 即時語音辨識與翻譯字幕浮動視窗，適用於 YouTube / Twitch 日文直播、日文遊戲、或與外國客戶的視訊會議。
 
-**v1.3.2** | [English](README.md)
+**v1.3.4** | [English](README.md)
 
 ## 翻譯後端說明
 
@@ -98,6 +98,7 @@ step_seconds = 2
 min_text_length = 4
 
 [stt]
+model = "large-v3"           # large-v3（最準）/ medium / small — 低階電腦請參考下方硬體說明
 beam_size = 5                # 辨識精度 vs 速度：1=最快，5=最準確（預設）
 vocab = [                    # 幫助 Whisper 辨識的專有名詞
     "にじさんじ", "ホロライブ",
@@ -153,12 +154,26 @@ source_lang = "ja"
 target_lang = "en"
 ```
 
+## 硬體建議
+
+| 硬體 | 建議 model | STT 速度 |
+|---|---|---|
+| NVIDIA RTX 3000/4000/5000（≥4GB VRAM） | `large-v3` | ~0.5 秒/段 |
+| NVIDIA MX 系列 / GTX（2–3GB VRAM） | `medium` | ~1–2 秒/段 |
+| 無獨顯 / 整合顯示卡 | `medium` 或 `small` | ~10–30 秒/段 |
+
+在 `settings.toml` 設定：
+```toml
+[stt]
+model = "medium"   # 低階電腦或 VRAM 不足時，從 large-v3 改成 medium
+```
+
 ## 注意事項
 
 - 僅支援 Windows（WASAPI Loopback）
-- **沒有 GPU？** 程式會自動切換成 CPU 模式，不需要任何額外設定，但速度較慢（每段約 3–10 秒，而非 GPU 的 ~0.5 秒）
 - **NVIDIA GPU（RTX 3000 / 4000 系列）：** 安裝 [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) 即可，不需要其他步驟
 - **NVIDIA GPU（RTX 5000 系列 / Blackwell 架構）：** 安裝 CUDA Toolkit 後，還需將 `cublas64_12.dll`、`cublasLt64_12.dll`、`cudart64_12.dll` 從 `CUDA\v12.x\bin` 複製到 `.venv\Lib\site-packages\ctranslate2\`
+- **低階電腦 / 無獨顯？** 在 `[stt]` 設定 `model = "medium"` 或 `model = "small"`，程式會自動以 CPU 模式執行
 - 修改 `Modelfile` 後需重新執行 `ollama create sakura -f Modelfile`
 - `settings.toml` 和 `window-state.json` 已加入 `.gitignore`（個人設定，不進版本控管）
 

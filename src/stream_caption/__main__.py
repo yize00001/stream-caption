@@ -74,25 +74,33 @@ def _is_duplicate(new: str, prev: str) -> bool:
 
 
 
-def _is_model_cached() -> bool:
-    cache = Path.home() / ".cache" / "huggingface" / "hub" / "models--Systran--faster-whisper-large-v3"
+def _is_model_cached(model_name: str) -> bool:
+    safe = model_name.replace("/", "--")
+    cache = Path.home() / ".cache" / "huggingface" / "hub" / f"models--Systran--faster-whisper-{safe}"
     return cache.exists()
 
 
-def _load_model(tray_ref: list | None = None) -> WhisperModel:
-    first_run = not _is_model_cached()
+_MODEL_SIZES = {
+    "large-v3": "~3GB", "large-v2": "~3GB",
+    "medium": "~1.5GB", "small": "~500MB", "base": "~150MB", "tiny": "~75MB",
+}
+
+
+def _load_model(model_name: str = "large-v3", tray_ref: list | None = None) -> WhisperModel:
+    first_run = not _is_model_cached(model_name)
+    size_hint = _MODEL_SIZES.get(model_name, "")
     if first_run:
         print("=" * 55)
-        print("  First run: downloading faster-whisper large-v3 (~3GB)")
+        print(f"  First run: downloading {model_name} ({size_hint})")
         print("  This may take several minutes — please wait...")
         print("=" * 55)
         if tray_ref and tray_ref[0]:
             tray_ref[0].title = "stream-caption (downloading model...)"
     for device, compute in [("cuda", "float16"), ("cpu", "int8")]:
         try:
-            print(f"Loading faster-whisper large-v3 ({device.upper()})...")
+            print(f"Loading faster-whisper {model_name} ({device.upper()})...")
             start = time.time()
-            model = WhisperModel("large-v3", device=device, compute_type=compute)
+            model = WhisperModel(model_name, device=device, compute_type=compute)
             elapsed = time.time() - start
             print(f"")
             print(f"  ✓ Model ready ({device.upper()}, {elapsed:.1f}s)")
@@ -189,7 +197,7 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
     with sc.get_microphone(speaker.id, include_loopback=True).recorder(
         samplerate=sample_rate
     ) as mic, log_ctx as log_file:
-        model = _load_model(tray_ref=tray_ref)
+        model = _load_model(model_name=settings.stt.model, tray_ref=tray_ref)
         mic.record(numframes=sample_rate * audio_cfg.window_seconds)
 
         rec_thread = threading.Thread(

@@ -2,7 +2,7 @@
 
 Real-time speech recognition and translation overlay for YouTube/Twitch live streams, Japanese games, and video meetings.
 
-**v1.3.2** | [繁體中文說明](README.zh-TW.md)
+**v1.3.4** | [繁體中文說明](README.zh-TW.md)
 
 ## Stack
 
@@ -105,6 +105,7 @@ step_seconds = 2
 min_text_length = 4
 
 [stt]
+model = "large-v3"           # large-v3 (best) / medium / small — see hardware guide below
 beam_size = 5                # 1=fastest, 5=most accurate (default)
 vocab = [                    # proper nouns for better STT recognition
     "にじさんじ", "ホロライブ",
@@ -157,12 +158,26 @@ source_lang = "ja"
 target_lang = "en"
 ```
 
+## Hardware guide
+
+| Hardware | Recommended model | STT speed |
+|---|---|---|
+| NVIDIA RTX 3000/4000/5000 (≥4GB VRAM) | `large-v3` | ~0.5s/segment |
+| NVIDIA MX series / GTX (2–3GB VRAM) | `medium` | ~1–2s/segment |
+| No GPU / integrated graphics | `medium` or `small` | ~10–30s/segment |
+
+Set the model in `settings.toml`:
+```toml
+[stt]
+model = "medium"   # change from large-v3 if your PC is slow or has limited VRAM
+```
+
 ## Notes
 
 - Windows only (WASAPI Loopback)
-- **No GPU?** The app automatically falls back to CPU mode — no setup needed, just slower inference (~3–10s per segment instead of ~0.5s)
 - **NVIDIA GPU (RTX 3000/4000 series):** Install [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) — no extra steps needed
 - **NVIDIA GPU (RTX 5000 series / Blackwell):** After installing CUDA Toolkit, also copy `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` from `CUDA\v12.x\bin` to `.venv\Lib\site-packages\ctranslate2\`
+- **Low-end PC / no GPU?** Set `model = "medium"` or `model = "small"` in `[stt]` — the app falls back to CPU automatically
 - After editing `Modelfile`, re-run `ollama create sakura -f Modelfile`
 - `settings.toml` and `window-state.json` are gitignored (personal config)
 
