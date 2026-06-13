@@ -2,7 +2,7 @@
 
 Real-time speech recognition and translation overlay for YouTube/Twitch live streams, Japanese games, and video meetings.
 
-**v1.3.4** | [繁體中文說明](README.zh-TW.md)
+**v1.3.6** | [繁體中文說明](README.zh-TW.md)
 
 ## Stack
 
@@ -177,8 +177,8 @@ model = "medium"   # change from large-v3 if your PC is slow or has limited VRAM
 ## Notes
 
 - Windows only (WASAPI Loopback)
-- **NVIDIA GPU (RTX 3000/4000 series):** Install [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) — no extra steps needed
-- **NVIDIA GPU (RTX 5000 series / Blackwell):** After installing CUDA Toolkit, also copy `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` from `CUDA\v12.x\bin` to `.venv\Lib\site-packages\ctranslate2\`
+- **NVIDIA GPU (RTX 3000/4000 series):** Install [CUDA Toolkit 12.8](https://developer.nvidia.com/cuda-12-8-0-download-archive) — no extra steps needed
+- **NVIDIA GPU (RTX 5000 series / Blackwell):** After installing CUDA Toolkit, also copy `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` from `CUDA\v12.8\bin` to `.venv\Lib\site-packages\ctranslate2\`
 - **Low-end PC / no GPU?** Set `model = "medium"` or `model = "small"` in `[stt]` — the app falls back to CPU automatically
 - After editing `Modelfile`, re-run `ollama create sakura -f Modelfile`
 - `settings.toml` and `window-state.json` are gitignored (personal config)
