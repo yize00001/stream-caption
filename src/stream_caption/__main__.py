@@ -58,6 +58,11 @@ _HALLUCINATIONS = (
     "字幕は自動生成",
     "ご視聴ありがとうございます",
     "お疲れ様でした",
+    "Thank you for watching",
+    "Thanks for watching",
+    "Please subscribe",
+    "Like and subscribe",
+    "See you next time",
 )
 
 
