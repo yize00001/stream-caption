@@ -8,7 +8,8 @@ Usage: uv run stream-caption
 """
 
 import contextlib
-import difflib
+import json
+import math
 import os
 import queue
 import threading
@@ -48,34 +49,13 @@ from faster_whisper import WhisperModel
 from PIL import Image, ImageDraw
 import pystray
 
-from stream_caption.settings import load_settings
-from stream_caption.translator import translate
+from stream_caption.settings import SettingsError, load_settings
+from stream_caption.audio import PauseState, drain_audio, recording
 from stream_caption.overlay import SubtitleOverlay
-
-_HALLUCINATIONS = (
-    "ご視聴ありがとうございました",
-    "チャンネル登録",
-    "字幕は自動生成",
-    "ご視聴ありがとうございます",
-    "お疲れ様でした",
-    "Thank you for watching",
-    "Thanks for watching",
-    "Please subscribe",
-    "Like and subscribe",
-    "See you next time",
+from stream_caption.quality import (
+    SpeechSegment, SpeechWord, Transcription, SegmentHistory, TranslationContext, sanitize_diagnostic,
 )
-
-
-def _is_hallucination(text: str) -> bool:
-    return any(h in text for h in _HALLUCINATIONS)
-
-
-def _is_duplicate(new: str, prev: str) -> bool:
-    if not prev:
-        return False
-    return difflib.SequenceMatcher(None, new, prev).ratio() > 0.8
-
-
+from stream_caption.captions import CaptionAssembler, CaptionUpdate
 
 def _is_model_cached(model_name: str) -> bool:
     safe = model_name.replace("/", "--")
@@ -150,13 +130,14 @@ def _transcribe(
     prev_text: str = "",
     vocab: list[str] | None = None,
     beam_size: int = 5,
-) -> tuple[str, str]:
-    """Returns (transcribed_text, detected_language_code)."""
+    use_previous_text: bool = False,
+    word_timestamps: bool = False,
+) -> Transcription:
+    """Retain segment timestamps and quality signals for filtering and diagnosis."""
     whisper_lang = None if source_lang == "auto" else source_lang.lower().split("-")[0]
-    # Use hotwords for vocab (boosts recognition without hallucination risk)
-    # Use initial_prompt only for previous sentence context
+    # Hotwords are hints, not a guarantee against hallucinations.
     hotwords = " ".join(vocab) if vocab else None
-    prompt = prev_text or None
+    prompt = (prev_text or None) if use_previous_text else None
     segments, info = model.transcribe(
         audio,
         language=whisper_lang,
@@ -164,44 +145,39 @@ def _transcribe(
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
         initial_prompt=prompt,
+        condition_on_previous_text=use_previous_text,
+        word_timestamps=word_timestamps,
         hotwords=hotwords,
         no_repeat_ngram_size=3,
         compression_ratio_threshold=1.8,
         log_prob_threshold=-0.8,
         no_speech_threshold=0.7,
     )
-    return "".join(seg.text for seg in segments).strip(), info.language
+    return Transcription(
+        tuple(SpeechSegment(seg.text, seg.start, seg.end, seg.avg_logprob,
+                            seg.no_speech_prob, seg.compression_ratio,
+                            tuple(SpeechWord(word.word, word.start, word.end, word.probability)
+                                  for word in (getattr(seg, 'words', None) or ()))) for seg in segments),
+        info.language, info.language_probability, info.duration_after_vad,
+    )
 
 
-def _record_loop(mic, audio_q: queue.Queue, stop_evt: threading.Event) -> None:
-    import warnings
-    sample_rate = 16000
-    step_frames = sample_rate * 2
-    consecutive_errors = 0
-    while not stop_evt.is_set():
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                chunk = mic.record(numframes=step_frames)
-            consecutive_errors = 0
-            mono = (chunk.mean(axis=1) if chunk.ndim > 1 else chunk.flatten()).astype(np.float32)
-            if audio_q.full():
-                audio_q.get_nowait()
-            audio_q.put_nowait(mono)
-        except Exception as e:
-            consecutive_errors += 1
-            if consecutive_errors == 1:
-                print(f"[WARN] Audio capture error: {e}")
-            time.sleep(0.5)
-            if consecutive_errors >= 5:
-                print("[ERROR] Audio device lost, record thread exiting")
-                return
+def _diagnose(file, **record):
+    if file is not None:
+        file.write(json.dumps(sanitize_diagnostic({"time": datetime.now().isoformat(), **record}),
+                              ensure_ascii=False, allow_nan=False) + "\n")
+        file.flush()
 
 
-def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading.Event, tray_ref: list | None = None) -> None:
+def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: PauseState, tray_ref: list | None = None) -> None:
+    from stream_caption.translator import translate_detailed
+
     audio_cfg = settings.audio
     sample_rate = 16000
     max_chunks = audio_cfg.window_seconds // audio_cfg.step_seconds
+    stabilize = settings.stt.stabilize_captions
+    buffer_chunks = (math.ceil(max(audio_cfg.window_seconds, settings.stt.caption_buffer_seconds)
+                               / audio_cfg.step_seconds) if stabilize else max_chunks)
 
     speaker = sc.default_speaker()
     if audio_cfg.device:
@@ -218,120 +194,238 @@ def _pipeline(settings, overlay, stop_evt: threading.Event, pause_evt: threading
         print(f"CUDA bin: {_cuda_bin}")
 
     log_path = None
-    if settings.log.enabled:
+    diagnostics_path = None
+    if settings.log.enabled or settings.log.diagnostics_enabled:
         log_dir = Path(__file__).parent.parent.parent / "logs"
         log_dir.mkdir(exist_ok=True)
-        log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        if settings.log.enabled:
+            log_path = log_dir / f"{stamp}.log"
+        if settings.log.diagnostics_enabled:
+            diagnostics_path = log_dir / f"{stamp}.diagnostics.jsonl"
 
-    audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=max_chunks * 2)
+    audio_q = queue.Queue(maxsize=max_chunks * 2)
 
-    log_ctx = open(log_path, "w", encoding="utf-8") if log_path else contextlib.nullcontext()
-    with sc.get_microphone(speaker.id, include_loopback=True).recorder(
-        samplerate=sample_rate
-    ) as mic, log_ctx as log_file:
-        model_name = settings.stt.model
-        if model_name == "auto":
-            model_name = _detect_best_model()
-            print(f"[INFO] Auto-detected model: {model_name}")
-        model = _load_model(model_name=model_name, tray_ref=tray_ref)
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            mic.record(numframes=sample_rate * audio_cfg.window_seconds)
+    # Open capture only once the model is ready, so startup cannot queue old audio.
+    model_name = settings.stt.model
+    if model_name == "auto":
+        model_name = _detect_best_model()
+        print(f"[INFO] Auto-detected model: {model_name}")
+    model = _load_model(model_name=model_name, tray_ref=tray_ref)
+    if stop_evt.is_set():
+        return
 
-        rec_thread = threading.Thread(
-            target=_record_loop, args=(mic, audio_q, stop_evt), daemon=True
-        )
-        rec_thread.start()
+    with contextlib.ExitStack() as resources:
+        log_file = resources.enter_context(open(log_path, "w", encoding="utf-8")) if log_path else None
+        diagnostics_file = (resources.enter_context(open(diagnostics_path, "w", encoding="utf-8"))
+                            if diagnostics_path else None)
+        mic = resources.enter_context(sc.get_microphone(speaker.id, include_loopback=True).recorder(
+            samplerate=sample_rate))
+        with recording(mic, audio_q, pause_evt, audio_cfg.step_seconds) as rec_thread:
+            src = settings.translation.source_lang
+            tgt = settings.translation.target_lang
+            print(f"Translation: {src} → {tgt}")
+            if log_path:
+                print(f"Logging to: {log_path}")
+            else:
+                print("Logging disabled")
+            if diagnostics_path:
+                print(f"Diagnostics: {diagnostics_path}")
+            print("Listening... Right-click tray icon to Pause or Quit.\n")
 
-        src = settings.translation.source_lang
-        tgt = settings.translation.target_lang
-        print(f"Translation: {src} → {tgt}")
-        if log_path:
-            print(f"Logging to: {log_path}")
-        else:
-            print("Logging disabled")
-        print("Listening... Right-click tray icon to Pause or Quit.\n")
-
-        prev_src = ""
-        prev_tgt = ""
-        audio_chunks: deque[np.ndarray] = deque(maxlen=max_chunks)
-
-        while not stop_evt.is_set():
-            if not rec_thread.is_alive():
-                raise RuntimeError("Audio record thread died, triggering watchdog restart")
-
-            if pause_evt.is_set():
-                time.sleep(0.2)
-                continue
-
-            try:
-                mono = audio_q.get(timeout=1.0)
-            except queue.Empty:
-                continue
-
-            audio_chunks.append(mono)
-            if len(audio_chunks) < max_chunks:
-                continue
-
-            window = np.concatenate(audio_chunks)
-            if float(np.abs(window).mean()) < audio_cfg.silence_threshold:
-                continue
-
-            t0 = time.time()
-            src_text, detected_lang = _transcribe(
-                model, window,
-                source_lang=src,
-                prev_text=prev_src,
-                vocab=settings.stt.vocab,
-                beam_size=settings.stt.beam_size,
+            generation = pause_evt.snapshot()[1]
+            prev_src = ""
+            context = TranslationContext(settings.translation)
+            history = SegmentHistory()
+            last_audio_end = None
+            audio_chunks = deque(maxlen=buffer_chunks)
+            assembler = CaptionAssembler(
+                max_buffer_seconds=buffer_chunks * audio_cfg.step_seconds,
+                silence_seconds=settings.stt.caption_silence_seconds,
+                stability_passes=settings.stt.caption_stability_passes,
+                min_text_length=audio_cfg.min_text_length,
             )
-            stt_ms = (time.time() - t0) * 1000
+            caption_cache = {}
 
-            if stt_ms > 5000:
-                audio_chunks.clear()
+            def publish(updates, chunk, window_start, stt_ms):
+                nonlocal prev_src
+                for update in updates:
+                    if stop_evt.is_set() or not pause_evt.accepts(generation):
+                        return
+                    context_source, context_target = context.get(update.language, chunk.captured_at)
+                    cached = caption_cache.get(update.caption_id) if update.caption_id else None
+                    reused = cached is not None and cached[0] == update.text
+                    t1 = time.perf_counter()
+                    translation = cached[1] if reused else translate_detailed(
+                        update.text, source_lang=update.language, target_lang=tgt,
+                        context_source=context_source, context_target=context_target,
+                        model_type=settings.translation.model_type,
+                        glossary_id=settings.translation.glossary_id,
+                        topic_context=settings.translation.topic_context,
+                    )
+                    tl_ms = (time.perf_counter() - t1) * 1000
+                    obsolete = stop_evt.is_set() or not pause_evt.accepts(generation)
+                    _diagnose(diagnostics_file, event="translation",
+                              status="obsolete" if obsolete else translation.status,
+                              source_text=update.text, translated_text=translation.text,
+                              source_lang=update.language, target_lang=tgt,
+                              window_start_sample=window_start, window_end_sample=chunk.end_sample,
+                              caption_id=update.caption_id, revision=update.revision,
+                              final=update.final, caption_reason=update.reason, cache_reused=reused,
+                              backend=translation.backend, errors=translation.errors,
+                              stt_ms=stt_ms, translation_ms=tl_ms,
+                              latest_chunk_age_ms=(time.monotonic() - chunk.captured_at) * 1000)
+                    if obsolete:
+                        return
+                    prev_src = update.text
+                    if update.caption_id:
+                        caption_cache[update.caption_id] = (update.text, translation)
+                    if update.final:
+                        if translation.text:
+                            context.add(update.text, translation.text, update.language, chunk.captured_at)
+                        caption_cache.pop(update.caption_id, None)
+                    tgt_text = translation.text or "[翻譯暫時不可用]"
+                    revision_label = (f"[caption {update.caption_id} rev={update.revision} final={update.final}]"
+                                      if update.caption_id else "")
+                    line = (f"[STT {stt_ms:.0f}ms][{update.language}]{revision_label} {update.text}\n"
+                            f"[TL  {tl_ms:.0f}ms][{translation.backend}] {tgt_text}\n")
+                    print(line)
+                    if log_file:
+                        log_file.write(line + "\n")
+                        log_file.flush()
+                    if update.caption_id:
+                        overlay.upsert(update.caption_id, update.text, tgt_text, final=update.final)
+                    else:
+                        overlay.push(update.text, tgt_text)
+
+            def trim_sealed_audio():
+                retain_from = assembler.retain_from_sample(audio_cfg.step_seconds)
+                while len(audio_chunks) > 1 and audio_chunks[0].end_sample <= retain_from:
+                    audio_chunks.popleft()
+
+            while not stop_evt.is_set():
+                if not rec_thread.is_alive():
+                    raise RuntimeError("Audio record thread died, triggering watchdog restart")
+
+                paused, current_generation = pause_evt.snapshot()
+                if current_generation != generation:
+                    generation = current_generation
+                    audio_chunks.clear()
+                    drain_audio(audio_q)
+                    prev_src = ""
+                    context.clear()
+                    history.clear()
+                    assembler.clear()
+                    caption_cache.clear()
+                    last_audio_end = None
+                if paused:
+                    stop_evt.wait(0.1)
+                    continue
+
                 try:
-                    while True:
-                        audio_q.get_nowait()
+                    chunk = audio_q.get(timeout=0.2)
                 except queue.Empty:
-                    pass
-                print(f"[WARN] STT took {stt_ms:.0f}ms, flushed stale audio buffer")
-                continue
+                    continue
 
-            if not src_text or len(src_text) < audio_cfg.min_text_length:
-                continue
-            if len(src_text) > 200:
-                print(f"[WARN] STT output too long ({len(src_text)} chars), skipping")
-                continue
-            if _is_hallucination(src_text) or _is_duplicate(src_text, prev_src):
-                continue
+                if chunk.generation != generation or not pause_evt.accepts(generation):
+                    continue
+                if last_audio_end is not None and chunk.start_sample != last_audio_end:
+                    audio_chunks.clear()
+                    context.clear()
+                    history.clear()
+                    assembler.clear()
+                    caption_cache.clear()
+                    prev_src = ""
+                    _diagnose(diagnostics_file, event="audio_gap",
+                              previous_end=last_audio_end, next_start=chunk.start_sample)
+                last_audio_end = chunk.end_sample
+                audio_chunks.append(chunk)
+                if stabilize and not assembler.pending:
+                    while len(audio_chunks) > max_chunks:
+                        audio_chunks.popleft()
+                if len(audio_chunks) < max_chunks:
+                    continue
 
-            # For auto-detect, use detected language; otherwise use configured source
-            effective_src = detected_lang if src == "auto" else src
+                window = np.concatenate([item.audio for item in audio_chunks])
+                amplitude = float(np.abs(window).mean())
+                if amplitude < audio_cfg.silence_threshold:
+                    _diagnose(diagnostics_file, event="audio_window", status="below_volume",
+                              amplitude=amplitude, window_start_sample=audio_chunks[0].start_sample,
+                              window_end_sample=chunk.end_sample)
+                    if stabilize:
+                        publish(assembler.advance(chunk.end_sample / sample_rate), chunk,
+                                audio_chunks[0].start_sample, 0)
+                        trim_sealed_audio()
+                    continue
 
-            t1 = time.time()
-            tgt_text = translate(
-                src_text,
-                source_lang=effective_src,
-                target_lang=tgt,
-                context_ja=prev_src if effective_src == "ja" else "",
-                context_zh=prev_tgt if effective_src == "ja" else "",
-            )
-            tl_ms = (time.time() - t1) * 1000
-
-            if not tgt_text:
-                continue
-
-            prev_src = src_text
-            prev_tgt = tgt_text
-
-            line = f"[STT {stt_ms:.0f}ms][{detected_lang}] {src_text}\n[TL  {tl_ms:.0f}ms] {tgt_text}\n"
-            print(line)
-            if log_file:
-                log_file.write(line + "\n")
-                log_file.flush()
-
-            overlay.push(src_text, tgt_text)
+                t0 = time.perf_counter()
+                transcription = _transcribe(
+                    model, window,
+                    source_lang=src,
+                    prev_text=prev_src if settings.stt.use_previous_text else "",
+                    vocab=settings.stt.vocab,
+                    beam_size=settings.stt.beam_size,
+                    use_previous_text=settings.stt.use_previous_text,
+                    word_timestamps=stabilize,
+                )
+                stt_ms = (time.perf_counter() - t0) * 1000
+                window_start = audio_chunks[0].start_sample
+                quality_segments = []
+                decisions = []
+                for segment in transcription.segments:
+                    reason = segment.rejection_reason(settings.stt)
+                    decisions.append(reason or "passed_quality")
+                    if not reason:
+                        quality_segments.append(segment)
+                fresh = (quality_segments if stabilize
+                         else history.select(quality_segments, window_start))
+                src_text = "".join(segment.text for segment in fresh).strip()
+                status = "accepted"
+                if stop_evt.is_set() or not pause_evt.accepts(generation):
+                    status = "obsolete"
+                elif stt_ms > 5000:
+                    status = "slow_stt"
+                elif not quality_segments:
+                    status = "no_accepted_speech"
+                elif not fresh:
+                    status = "overlapping_duplicate"
+                elif not stabilize and len(src_text) < audio_cfg.min_text_length:
+                    status = "too_short"
+                elif len(src_text) > 200:
+                    status = "too_long"
+                _diagnose(diagnostics_file, event="stt", status=status,
+                          window_start_sample=window_start, window_end_sample=chunk.end_sample,
+                          stt_ms=stt_ms, decisions=decisions, selected_text=src_text,
+                          amplitude=amplitude,
+                          speech_ratio=transcription.speech_seconds / (len(window) / sample_rate),
+                          **transcription.diagnostics())
+                if status == "slow_stt":
+                    audio_chunks.clear()
+                    drain_audio(audio_q)
+                    context.clear()
+                    history.clear()
+                    assembler.clear()
+                    caption_cache.clear()
+                    prev_src = ""
+                    last_audio_end = None
+                    print(f"[WARN] STT took {stt_ms:.0f}ms, flushed stale audio buffer")
+                if status not in ("accepted", "no_accepted_speech"):
+                    continue
+                if stabilize:
+                    effective_src = transcription.language if src == "auto" else src
+                    updates = assembler.observe(quality_segments, window_start,
+                                                chunk.end_sample, effective_src)
+                    _diagnose(diagnostics_file, event="caption_assembly",
+                              pending=assembler.pending, update_count=len(updates),
+                              window_start_sample=window_start, window_end_sample=chunk.end_sample)
+                    publish(updates, chunk, window_start, stt_ms)
+                    trim_sealed_audio()
+                elif status == "accepted":
+                    effective_src = transcription.language if src == "auto" else src
+                    publish([CaptionUpdate(None, src_text, effective_src, True, 1, "legacy")],
+                            chunk, window_start, stt_ms)
+                    if not stop_evt.is_set() and pause_evt.accepts(generation):
+                        history.commit(fresh, window_start)
 
 
 def _create_tray_icon(state: str = "active") -> Image.Image:
@@ -349,7 +443,7 @@ def _create_tray_icon(state: str = "active") -> Image.Image:
     return img
 
 
-def _pipeline_watchdog(settings, overlay, stop_evt: threading.Event, pause_evt: threading.Event, tray_ref: list) -> None:
+def _pipeline_watchdog(settings, overlay, stop_evt: threading.Event, pause_evt: PauseState, tray_ref: list) -> None:
     """Restart pipeline thread if it crashes, update tray tooltip to reflect state."""
     while not stop_evt.is_set():
         t = threading.Thread(
@@ -367,26 +461,31 @@ def _pipeline_watchdog(settings, overlay, stop_evt: threading.Event, pause_evt: 
         if tray_ref[0]:
             tray_ref[0].icon = _create_tray_icon("error")
             tray_ref[0].title = "stream-caption (restarting...)"
-        time.sleep(3)
+        if stop_evt.wait(3):
+            break
         if tray_ref[0] and not pause_evt.is_set():
             tray_ref[0].icon = _create_tray_icon("active")
             tray_ref[0].title = "stream-caption"
 
 
 def main():
-    settings = load_settings()
+    try:
+        settings = load_settings()
+    except SettingsError as exc:
+        raise SystemExit(f"Settings error: {exc}") from exc
     overlay = SubtitleOverlay(settings.overlay)
     overlay.start()
 
     stop_evt = threading.Event()
-    pause_evt = threading.Event()
+    pause_evt = PauseState()
     tray_ref: list = [None]
 
-    threading.Thread(
+    watchdog = threading.Thread(
         target=_pipeline_watchdog,
         args=(settings, overlay, stop_evt, pause_evt, tray_ref),
         daemon=True,
-    ).start()
+    )
+    watchdog.start()
 
     def on_quit(icon, item):
         stop_evt.set()
@@ -407,10 +506,16 @@ def main():
 
     menu = pystray.Menu(
         pystray.MenuItem(pause_label, on_toggle_pause),
+        pystray.MenuItem(
+            "Auto-hide subtitles",
+            lambda icon, item: overlay.toggle_auto_hide(),
+            checked=lambda item: overlay.auto_hide_enabled,
+        ),
         pystray.MenuItem("Quit", on_quit),
     )
 
     hotkey_str = settings.hotkey.toggle
+    listener = None
     try:
         hotkey = _kb.HotKey(
             _kb.HotKey.parse(hotkey_str),
@@ -439,7 +544,14 @@ def main():
     tray = pystray.Icon("stream-caption", _create_tray_icon(), "stream-caption", menu)
     tray_ref[0] = tray
     print("Subtitle overlay started. Right-click the tray icon to Pause or Quit.\n")
-    tray.run()
+    try:
+        tray.run()
+    finally:
+        stop_evt.set()
+        if listener is not None:
+            listener.stop()
+        # Let the pipeline join its reader and close the recorder before exit.
+        watchdog.join()
 
 
 if __name__ == "__main__":

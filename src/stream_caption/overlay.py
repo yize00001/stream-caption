@@ -33,22 +33,39 @@ def _save_state(x: int, y: int, w: int, h: int) -> None:
 class SubtitleOverlay:
     def __init__(self, s: OverlaySettings | None = None):
         self._s = s or OverlaySettings()
-        self._queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._queue: queue.Queue[tuple[str | None, str, str, bool]] = queue.Queue()
         self._pairs: list[tuple[str, str]] = []
+        self._caption_indexes: dict[str, int] = {}
+        self._draft_indexes: set[int] = set()
         self._user_hidden: bool = False
         self._visibility_changed: bool = False
+        self._auto_hide_enabled = self._s.auto_hide_enabled
+        self._auto_hide_changed = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
         self._thread.start()
 
     def push(self, ja: str, zh: str):
-        self._queue.put((ja, zh))
+        self._queue.put((None, ja, zh, True))
+
+    def upsert(self, caption_id: str, source: str, translated: str, *, final: bool = True):
+        """Revisions replace the existing caption instead of appending history."""
+        self._queue.put((caption_id, source, translated, final))
 
     def toggle(self):
         """Toggle overlay on/off. Safe to call from any thread."""
         self._user_hidden = not self._user_hidden
         self._visibility_changed = True
+
+    @property
+    def auto_hide_enabled(self) -> bool:
+        return self._auto_hide_enabled
+
+    def toggle_auto_hide(self):
+        """Request a timer update; all tkinter work stays on the UI thread."""
+        self._auto_hide_enabled = not self._auto_hide_enabled
+        self._auto_hide_changed.set()
 
     def _render(self, text_widget: tk.Text, scroll_to_bottom: bool = True):
         text_widget.config(state="normal")
@@ -56,7 +73,8 @@ class SubtitleOverlay:
         for i, (ja, zh) in enumerate(self._pairs):
             if i > 0:
                 text_widget.insert("end", "\n")
-            text_widget.insert("end", ja + "\n", "ja")
+            prefix = "[暫定] " if i in self._draft_indexes else ""
+            text_widget.insert("end", prefix + ja + "\n", "ja")
             text_widget.insert("end", zh, "zh")
         text_widget.config(state="disabled")
         if scroll_to_bottom:
@@ -68,7 +86,7 @@ class SubtitleOverlay:
         root.title("stream-caption")
         root.overrideredirect(True)
         root.attributes("-topmost", True)
-        root.attributes("-alpha", 0)
+        root.attributes("-alpha", 0 if self._auto_hide_enabled else s.opacity)
         root.configure(bg=s.bg_color)
         root.resizable(False, False)
 
@@ -160,21 +178,30 @@ class SubtitleOverlay:
         mouse_over = [False]
 
         def hide():
-            if not mouse_over[0]:
+            hide_timer[0] = None
+            if self._auto_hide_enabled and not mouse_over[0]:
                 root.attributes("-alpha", 0)
+
+        def cancel_hide():
+            if hide_timer[0] is not None:
+                root.after_cancel(hide_timer[0])
+                hide_timer[0] = None
+
+        def schedule_hide():
+            cancel_hide()
+            if (self._auto_hide_enabled and not mouse_over[0]
+                    and not self._user_hidden and root.attributes("-alpha") > 0):
+                hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
 
         def on_enter(event):
             mouse_over[0] = True
             # Cancel auto-hide while hovering
-            if hide_timer[0]:
-                root.after_cancel(hide_timer[0])
-                hide_timer[0] = None
+            cancel_hide()
 
         def on_leave(event):
             mouse_over[0] = False
             # Restart auto-hide when mouse leaves
-            if root.attributes("-alpha") > 0:
-                hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
+            schedule_hide()
 
         root.bind("<Enter>", on_enter)
         root.bind("<Leave>", on_leave)
@@ -183,33 +210,40 @@ class SubtitleOverlay:
             updated = False
             try:
                 while True:
-                    ja, zh = self._queue.get_nowait()
-                    self._pairs.append((ja, zh))
+                    caption_id, ja, zh, final = self._queue.get_nowait()
+                    if caption_id is not None and caption_id in self._caption_indexes:
+                        index = self._caption_indexes[caption_id]
+                        self._pairs[index] = (ja, zh)
+                    else:
+                        index = len(self._pairs)
+                        if caption_id is not None:
+                            self._caption_indexes[caption_id] = index
+                        self._pairs.append((ja, zh))
+                    if final:
+                        self._draft_indexes.discard(index)
+                    else:
+                        self._draft_indexes.add(index)
                     updated = True
             except queue.Empty:
                 pass
 
-            if self._visibility_changed:
-                self._visibility_changed = False
+            visibility_changed = self._visibility_changed
+            self._visibility_changed = False
+            auto_hide_changed = self._auto_hide_changed.is_set()
+            if auto_hide_changed:
+                self._auto_hide_changed.clear()
+
+            if updated or visibility_changed or auto_hide_changed:
                 if self._user_hidden:
-                    if hide_timer[0]:
-                        root.after_cancel(hide_timer[0])
-                        hide_timer[0] = None
+                    cancel_hide()
                     root.attributes("-alpha", 0)
                 else:
-                    if self._pairs:
+                    # Refresh history received while manually hidden as well.
+                    at_bottom = txt.yview()[1] >= 0.95
+                    self._render(txt, scroll_to_bottom=at_bottom)
+                    if self._pairs or not self._auto_hide_enabled:
                         root.attributes("-alpha", s.opacity)
-                        hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
-
-            if updated and not self._user_hidden:
-                # Only auto-scroll to bottom if already near the bottom
-                at_bottom = txt.yview()[1] >= 0.95
-                self._render(txt, scroll_to_bottom=at_bottom)
-                root.attributes("-alpha", s.opacity)
-                if not mouse_over[0]:
-                    if hide_timer[0]:
-                        root.after_cancel(hide_timer[0])
-                    hide_timer[0] = root.after(s.auto_hide_seconds * 1000, hide)
+                    schedule_hide()
             root.after(100, poll)
 
         root.after(100, poll)

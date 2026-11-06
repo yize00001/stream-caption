@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 import deepl
 from opencc import OpenCC
 from openai import OpenAI
@@ -18,7 +19,7 @@ _DEEPL_SOURCE: dict[str, str] = {
 
 # DeepL target lang mapping (settings code → DeepL API code)
 _DEEPL_TARGET: dict[str, str] = {
-    "zh-tw": "ZH", "zh-cn": "ZH", "zh": "ZH",
+    "zh-tw": "ZH-HANT", "zh-cn": "ZH-HANS", "zh": "ZH",
     "en": "EN-US", "ja": "JA", "ko": "KO",
     "fr": "FR", "de": "DE", "es": "ES", "it": "IT",
     "pt": "PT-PT", "ru": "RU", "tr": "TR",
@@ -45,12 +46,12 @@ _sakura_client = OpenAI(
 )
 
 
-def _extract_first_line(text: str) -> str:
-    for line in text.splitlines():
-        line = line.strip()
-        if line:
-            return line
-    return ""
+@dataclass(frozen=True)
+class TranslationResult:
+    text: str = ""
+    backend: str = "none"
+    status: str = "unavailable"
+    errors: tuple[str, ...] = ()
 
 
 def _apply_opencc(text: str, target_lang: str) -> str:
@@ -59,19 +60,27 @@ def _apply_opencc(text: str, target_lang: str) -> str:
     return text
 
 
-def _translate_deepl(text: str, source_lang: str, target_lang: str, context: str = "") -> str:
+def _translate_deepl(text: str, source_lang: str, target_lang: str, context: str = "",
+                     model_type: str = "default", glossary_id: str = "") -> str:
     src = _DEEPL_SOURCE.get(source_lang.lower())
     tgt = _DEEPL_TARGET.get(target_lang.lower(), target_lang.upper())
+    options = {}
+    if model_type != "default":
+        options["model_type"] = model_type
+    if glossary_id:
+        options["glossary"] = glossary_id
     result = _deepl_client.translate_text(
         text,
         source_lang=src,
         target_lang=tgt,
         context=context if context else None,
+        **options,
     )
     return _apply_opencc(str(result), target_lang)
 
 
-def _translate_sakura(text: str, target_lang: str, context_ja: str = "", context_zh: str = "") -> str:
+def _translate_sakura(text: str, target_lang: str, context_ja: str = "", context_zh: str = "",
+                      topic_context: str = "") -> TranslationResult:
     if context_ja and context_zh:
         content = (
             f"前句日文：{context_ja}\n"
@@ -81,6 +90,9 @@ def _translate_sakura(text: str, target_lang: str, context_ja: str = "", context
     else:
         content = f"將以下日文翻譯成中文，只輸出譯文：{text}"
 
+    topic_prefix = f"話題背景：{topic_context}\n\n" if topic_context else ""
+    content = topic_prefix + content
+
     try:
         resp = _sakura_client.chat.completions.create(
             model=os.getenv("SAKURA_MODEL", "sakura"),
@@ -88,46 +100,73 @@ def _translate_sakura(text: str, target_lang: str, context_ja: str = "", context
             max_tokens=256,
             temperature=0.1,
         )
-        result = _extract_first_line(resp.choices[0].message.content or "")
     except Exception as e:
         if context_ja and "context" in str(e).lower():
-            print(f"[WARN] Context overflow, retrying without context: {e}")
+            print(f"[WARN] Context overflow, retrying without context ({type(e).__name__})")
             resp = _sakura_client.chat.completions.create(
                 model=os.getenv("SAKURA_MODEL", "sakura"),
-                messages=[{"role": "user", "content": f"將以下日文翻譯成中文，只輸出譯文：{text}"}],
+                messages=[{"role": "user", "content": topic_prefix + f"將以下日文翻譯成中文，只輸出譯文：{text}"}],
                 max_tokens=256,
                 temperature=0.1,
             )
-            result = _extract_first_line(resp.choices[0].message.content or "")
         else:
             raise
-    return _apply_opencc(result, target_lang)
+    choice = resp.choices[0]
+    if choice.finish_reason == "length":
+        return TranslationResult(backend="sakura", status="truncated",
+                                 errors=("sakura: output token limit reached",))
+    result = (choice.message.content or "").strip()
+    return TranslationResult(_apply_opencc(result, target_lang), "sakura",
+                             "ok" if result else "empty")
 
 
 def _is_ja_to_zh(source_lang: str, target_lang: str) -> bool:
     return source_lang.lower() == "ja" and target_lang.lower() in ("zh-tw", "zh-cn", "zh")
 
 
-def translate(
+def translate_detailed(
     text: str,
     source_lang: str = "ja",
     target_lang: str = "zh-TW",
-    context_ja: str = "",
-    context_zh: str = "",
-) -> str:
+    context_source: str = "",
+    context_target: str = "",
+    model_type: str = "default",
+    glossary_id: str = "",
+    topic_context: str = "",
+) -> TranslationResult:
     if not text.strip():
-        return ""
+        return TranslationResult(status="empty_input")
+    if source_lang.lower() == target_lang.lower():
+        return TranslationResult(text, "identity", "ok")
 
+    errors = []
     if _deepl_client:
         try:
-            return _translate_deepl(text, source_lang, target_lang, context=context_ja)
+            deepl_context = "\n".join(part for part in (topic_context, context_source) if part)
+            result = _translate_deepl(text, source_lang, target_lang,
+                                      context=deepl_context, model_type=model_type,
+                                      glossary_id=glossary_id)
+            if result.strip():
+                return TranslationResult(result, "deepl", "ok")
+            errors.append("deepl: empty response")
         except Exception as e:
-            print(f"[WARN] DeepL error, falling back to SakuraLLM: {e}")
+            errors.append(f"deepl: {type(e).__name__}")
+            print(f"[WARN] DeepL error: {type(e).__name__}")
 
     if _is_ja_to_zh(source_lang, target_lang):
         try:
-            return _translate_sakura(text, target_lang, context_ja, context_zh)
+            result = _translate_sakura(text, target_lang, context_source, context_target, topic_context)
+            return TranslationResult(result.text, result.backend, result.status,
+                                     tuple(errors) + result.errors)
         except Exception as e:
-            print(f"[WARN] SakuraLLM error: {e}")
+            errors.append(f"sakura: {type(e).__name__}")
+            print(f"[WARN] SakuraLLM error: {type(e).__name__}")
 
-    return ""
+    return TranslationResult(errors=tuple(errors))
+
+
+def translate(text: str, source_lang: str = "ja", target_lang: str = "zh-TW",
+              context_ja: str = "", context_zh: str = "") -> str:
+    """Compatibility entry point for the CLI and existing callers."""
+    return translate_detailed(text, source_lang, target_lang,
+                              context_ja, context_zh).text
