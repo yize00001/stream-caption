@@ -12,12 +12,13 @@ fg_ja = "#87CEEB"          # Japanese text color (light blue)
 opacity = 0.88             # Window opacity (0.0–1.0)
 width = 700                # Window width in pixels
 height = 160               # Window height in pixels
-auto_hide_seconds = 8      # Hide overlay after N seconds of silence
+auto_hide_enabled = true  # false = keep visible; can also toggle in tray for this session
+auto_hide_seconds = 8      # Hide overlay after N seconds without new subtitles when enabled
 
 [audio]
 silence_threshold = 0.003  # Volume below this is treated as silence
-window_seconds = 4         # Rolling STT window size
-step_seconds = 2           # Audio chunk size
+window_seconds = 4         # Positive integer seconds; must be a multiple of step_seconds
+step_seconds = 2           # Positive integer seconds; actual audio chunk size
 min_text_length = 4        # Minimum characters to process
 device = ""                # Speaker name substring to match, empty = system default
 
@@ -25,6 +26,15 @@ device = ""                # Speaker name substring to match, empty = system def
 model = "auto"           # auto (recommended) / large-v3 (~3GB) / medium (~1.5GB) / small (~500MB)
                          # auto: picks large-v3 if ≥4GB VRAM, medium if 2-3GB, small otherwise
 beam_size = 5            # STT accuracy vs speed: 1=fastest, 5=most accurate (default)
+use_previous_text = false # Avoid prompting Whisper with the previous caption
+quality_filter = true    # Conservative joint checks; scores are not accuracy percentages
+min_avg_logprob = -1.0
+max_no_speech_prob = 0.6
+max_compression_ratio = 2.4
+stabilize_captions = true  # Grow the pending audio buffer and revise one caption in place
+caption_buffer_seconds = 8 # Buffer cap, rounded to chunks; at least audio.window_seconds
+caption_silence_seconds = 0.8
+caption_stability_passes = 2 # Observations before a draft appears; silence may finalize sooner
 # vocab = [              # Uncomment to add proper nouns for better recognition
 #     "にじさんじ", "ホロライブ",
 # ]
@@ -32,9 +42,18 @@ beam_size = 5            # STT accuracy vs speed: 1=fastest, 5=most accurate (de
 [translation]
 source_lang = "auto"    # "auto" or: ja en ko zh fr de
 target_lang = "zh-TW"   # zh-TW zh-CN en ja ko fr de
+context_max_sentences = 3
+context_max_characters = 1000 # Combined source + translated context, complete pairs
+context_max_age_seconds = 15
+model_type = "default"  # Or latency_optimized / quality_optimized / prefer_quality_optimized
+glossary_id = ""        # Existing DeepL glossary ID for the source/target pair; empty disables
+topic_context = ""      # Optional topic background, ideally in the source language
+# Drinking-chat example: topic_context = "日本語の雑談配信。飲み会とお酒についての会話。"
+# Recognition hints belong in [stt] vocab, e.g. ["ちゃんぽん", "飲酒部", "ぶいすぽっ！"]
 
 [log]
 enabled = false  # Set to true to save transcription logs to logs/
+diagnostics_enabled = false # Opt-in JSONL: source/translation, scores, decisions, backend, timings
 
 [hotkey]
 toggle = "<ctrl>+<shift>+h"  # Toggle overlay visibility (pynput format)
